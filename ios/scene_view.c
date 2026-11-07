@@ -1,10 +1,13 @@
 /* Stage 1 slice driven by recovered iOS tables.
 
-   Map: ciStage01MapChip / ciStage01MapChipNear, column-major,
-   MapChipDraw at 0x12f24. Near layer scrolls camera >> 2.
-   Jimmy: acts 0 and 1, ciBillyMoveData speeds, GT_MoveCheck /
-   GT_FMoveSet / GT_ReadySet. BASH uses ciZakoC00* and BASH.obm.
-   The enemy X is a viewer offset; the encounter table is not decoded.
+   The packed map already has row 0 at the bottom of the bitmap.
+   glOrthox uses top 0 and bottom -height. StoreSprite negates Y,
+   so game +Y grows down from the top. The road tiles are the low
+   map rows, and FloorGroundSet's 0xEF lands on that road only
+   when those rows sit at the bottom.
+
+   Near layer scrolls camera >> 2. Jimmy uses acts 0 and 1.
+   BASH uses ciZakoC00 and BASH.obm. His X is a viewer offset.
 */
 
 #include <stdint.h>

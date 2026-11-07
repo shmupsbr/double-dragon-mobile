@@ -77,6 +77,14 @@ def _frames(blob, sheets, names, rects, pat, points, imgno, act_va, act_end):
 
 
 def _layer(chip: Image.Image, tiles: list[int], width: int, height: int) -> Image.Image:
+    """Row 0 is the bottom of the screen.
+
+    glOrthox uses top=0 and bottom=-height, so GL Y grows upward.
+    FillRect and OPENGL_StoreSprite negate the game Y, which makes
+    game +Y grow downward from the top. The road tiles are the low
+    map rows, and FloorGroundSet's 0xEF sits on that road only when
+    those rows are at the bottom: image_y = (height - 1 - row) * 16.
+    """
     image = Image.new("RGBA", (width * 16, height * 16), (0, 0, 0, 0))
     for x in range(width):
         for y in range(height):
@@ -84,7 +92,10 @@ def _layer(chip: Image.Image, tiles: list[int], width: int, height: int) -> Imag
             if tid < 0:
                 continue
             sx, sy = (tid & 31) * 16, (tid >> 5) * 16
-            image.alpha_composite(chip.crop((sx, sy, sx + 16, sy + 16)), (x * 16, y * 16))
+            image.alpha_composite(
+                chip.crop((sx, sy, sx + 16, sy + 16)),
+                (x * 16, (height - 1 - y) * 16),
+            )
     return image
 
 

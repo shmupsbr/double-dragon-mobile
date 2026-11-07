@@ -22,6 +22,8 @@ O ato 0 (`ciJimmyAct_000`, `0xa9fcc`) é a troca de peso: durações 2, 1, 2, 1,
 
 O mapa é `ciStage01MapChip` (`0x65498`) e `ciStage01MapChipNear` (`0x663c0`). `csStage01MapRange` diz 97×20 tiles, 1552×320 px. `MapChipDraw` (`0x12f24`) indexa `altura * coluna + linha`. Tile negativo some. Os outros usam `tx = id & 31`, `ty = id >> 5`, 16 px, folha `AREA1_CHIP.obm`. A camada near entra primeiro e rola com a câmera deslocada 2 bits.
 
+A fileira 0 do mapa é o asfalto. `glOrthox` põe Y=0 no topo da tela e o fundo em `-altura`. `OPENGL_StoreSprite` e `FillRect` negam o Y do jogo, então o +Y do jogo desce a partir do topo. `FloorGroundSet` devolve 239 (`0xEF`) nesse eixo. Esse valor só cai na rua se a fileira 0 estiver embaixo: a imagem usa `(20 - 1 - fileira) * 16`. A montagem anterior punha a fileira 0 no topo, e a rua ficava no telhado. O campo `+0x47ac`, que o desenho subtrai do Y, não teve uma gravação achada; com ele em zero a fórmula do chip sozinha deixaria a fileira 0 no topo. A orientação usada é a que põe o asfalto no mesmo lugar que o 239.
+
 O inimigo é o zako C00: retângulos `ciZakoC00Rect`, imagem local 0 → nome 21 → `BASH.obm`. O ato 0 (`0xb2174`) repete os padrões 0–5, dois quadros cada. A posição X=160 é desta vista. `csStage01EncEnemyData` não foi decodificado, então esse X não é um spawn original.
 
 `ciDrawFlag` (`0x604d0`) troca 0↔1 quando `facing` é 1. A vista espelha o corpo nesse caso. O sombreador que consome a flag não foi aberto instrução por instrução; o espelho é a leitura dessa troca.
@@ -45,7 +47,7 @@ make -C ios linux
 make -C ios windows
 ```
 
-O `.exe` foi compilado e executado com Wine no modo `--dump` (16 quadros para a direita). A saída foi `x 148 z 56 act 1 frame 4 facing 1`, igual à do binário Linux. A janela Win32 não foi aberta nesse modo.
+O `.exe` foi compilado e o Wine rodou o `--dump` (a lógica, não a janela Win32). A saída coincidiu com a do binário Linux: `x 148 z 56 act 1 frame 4 facing 1`. A janela Win32 não foi aberta.
 
 ```bash
 PYTHONPATH=/workspace python3 -m unittest tests.test_ios_anim tests.test_scene_dump -v

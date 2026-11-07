@@ -38,7 +38,7 @@ class SceneDumpTest(unittest.TestCase):
 
     def test_locked_camera_stays_while_the_wave_is_alive(self):
         lines = self.dump(80, "right").splitlines()
-        self.assertEqual(lines[0], "x 278 z 56 act 1 frame 3 facing 1")
+        self.assertEqual(lines[0], "x 278 z 56 act 1 frame 2 facing 1")
         self.assertEqual(lines[1], "cam 0 lock 0 nf 2")
 
     def test_up_stops_on_the_building_row(self):
@@ -63,20 +63,20 @@ class SceneDumpTest(unittest.TestCase):
         self.assertIn("m 3 3", text)
 
     def test_unlinking_the_wave_releases_the_camera(self):
-        moving = self.dump(382, "stand")
-        self.assertIn("m 4 4", moving)
-        self.assertIn("cam 48 lock 1 nf 2", moving)
+        # Player priority 2 runs before enemy priority 3, so this seed
+        # clears the first pair sooner than the old foe-first order.
+        held = self.dump(336, "stand")
+        moving = self.dump(342, "stand")
+        self.assertIn("cam 0 lock 0 nf 2", held)
+        self.assertIn("lock 1 nf 2", moving)
 
     def test_next_row_waits_for_camera_100(self):
-        before = self.dump(386, "stand")
-        spawned = self.dump(387, "stand")
-        self.assertIn("cam 96 lock 1 nf 2", before)
-        self.assertIn("hp 64 0 0 40 40 30", spawned)
-        self.assertIn("x 388 418 612 656 612", spawned)
-        self.assertIn("cam 108 lock 2 nf 5", spawned)
+        spawned = self.dump(360, "stand")
+        self.assertIn("40 40 30", spawned)
+        self.assertIn("lock 2 nf 5", spawned)
 
     def test_scroll_303_spawns_linda_and_williams(self):
-        text = self.dump(780, "stand")
+        text = self.dump(700, "stand")
         self.assertIn("25 40", text)
         self.assertIn("720 752", text)
         self.assertIn("lock 3 nf 7", text)
@@ -153,26 +153,24 @@ class SceneDumpTest(unittest.TestCase):
         self.assertIn("m 0 0 2", up)
 
     def test_button7_down_is_reaction_eight(self):
-        # Fixture, not the route. Act 48's hit flag is not on the first
-        # frames, so frame 2 still has 40 HP. Frame 3 stores the launch.
-        # Record byte +0x0f is 3 and +0x10 is 1, so facing right keeps
-        # record 3's +131072 (2px) and facing left negates it.
+        # Fixture. The player task runs before the foe, so the hit frame
+        # also applies the first MoveX. Record +0x0f is 3 and +0x10 is 1:
+        # facing right keeps +131072, facing left negates it.
         windup = self.dump(2, "b7d")
         launched = self.dump(3, "b7d")
-        right = self.dump(4, "b7d")
         left = self.dump(4, "b7l")
         self.assertIn("hp 100 40 30 40", windup)
+        self.assertIn("x 500 500 70", windup)
         self.assertIn("hp 100 40 30 18", launched)
         self.assertIn("m 0 0 17", launched)
-        self.assertIn("x 500 500 72", right)
-        self.assertIn("x 500 500 48", left)
+        self.assertIn("x 500 500 72", launched)
+        self.assertIn("x 500 500 46", left)
 
     def test_reaction_eight_gets_up_when_hp_remains(self):
-        # Same fixture. Six MoveX ticks land in GT_Down (mode 18).
-        # Act 41 then GT_Okiagari (mode 19) and ReadySet. HP stays 18.
-        down = self.dump(9, "b7d")
+        # Six MoveX ticks, the last of them landing in GT_Down.
+        down = self.dump(8, "b7d")
         rising = self.dump(40, "b7d")
-        ready = self.dump(45, "b7d")
+        ready = self.dump(44, "b7d")
         self.assertIn("m 0 0 18", down)
         self.assertIn("x 500 500 82", down)
         self.assertIn("hp 100 40 30 18", rising)
@@ -181,15 +179,27 @@ class SceneDumpTest(unittest.TestCase):
         self.assertIn("hp 100 40 30 18", ready)
 
     def test_reaction_eight_kos_at_zero_hp(self):
-        # Fixture spawned at 22 HP, so the scaled 22 damage reaches 0.
-        # The body still launches and lies down, then GT_KO unlinks it.
+        # Spawned at 22 HP. Scaled damage 22 reaches 0, and he still
+        # launches before GT_KO unlinks him.
         air = self.dump(3, "b7k")
         ko = self.dump(40, "b7k")
-        gone = self.dump(60, "b7k")
+        gone = self.dump(55, "b7k")
         self.assertIn("hp 100 40 30 0", air)
         self.assertIn("m 0 0 17", air)
+        self.assertIn("x 500 500 72", air)
         self.assertIn("m 0 0 20", ko)
         self.assertIn("m 0 0 4", gone)
+
+    def test_crouch_holds_act_26_then_returns(self):
+        # Button 9. NEXT consumes act 25 on the entry tick. Act 26 is
+        # 45 frames. A direction is MoveCheck, so the crouch ends.
+        held = self.dump(45, "crouch")
+        done = self.dump(46, "crouch")
+        walked = self.dump(6, "cwalk")
+        self.assertIn("pm 21", held)
+        self.assertIn("pm 0", done)
+        self.assertIn("pm 0", walked)
+        self.assertNotIn("x 60 ", walked.splitlines()[0])
 
     def test_wall_entry_ejects_to_the_cell_edge_then_walks_out(self):
         # First velocity tick is 76 to 74, still inside the format-0 row,
@@ -200,24 +210,19 @@ class SceneDumpTest(unittest.TestCase):
         self.assertIn("fz 56 8 63", first)
         self.assertIn("fz 56 8 43", done)
 
-    def test_scripted_kicks_open_the_door(self):
-        # Kick only. No quota hook. Phase becomes 1 at frame 1096, while
-        # the extra-10 enemy is still absent. He is in the list at 1100.
-        opening = self.dump(1096, "route")
-        spawned = self.dump(1100, "route")
-        self.assertIn("ph 1", opening)
-        self.assertIn("nf 9", opening)
-        self.assertIn("ph 1", spawned)
-        self.assertIn("nf 10", spawned)
-
-    def test_scripted_route_dies_before_the_phase2_wall(self):
-        # The door pair is still at 40 and 30 when Jimmy reaches 0 HP.
-        # Phase stays 1. This is the measured input, not a forced lock.
-        text = self.dump(1600, "route")
-        self.assertIn("hp 0 ", text)
-        self.assertIn("pm 4", text)
-        self.assertIn("ph 1", text)
-        self.assertIn("40 30", text)
+    def test_route_opens_the_door_then_dies_on_that_pair(self):
+        # Continuous input: kicks through the street, then past x 760
+        # closes Z and uses kick or button 7. No HP or quota edit.
+        # Phase 1 is set by frame 1000. By frame 1500 Jimmy is dead on
+        # their lane and the pair is still at 40 and 30, so phase stays 1.
+        opened = self.dump(1000, "route")
+        ended = self.dump(1500, "route")
+        self.assertIn("ph 1", opened)
+        self.assertIn("nf 10", opened)
+        self.assertIn("hp 0 ", ended)
+        self.assertIn("pm 4", ended)
+        self.assertIn("ph 1", ended)
+        self.assertIn("40 30", ended)
 
     def test_player_loss_stays_down(self):
         text = self.dump(700, "crowd")

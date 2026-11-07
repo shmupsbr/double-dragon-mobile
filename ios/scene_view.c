@@ -57,7 +57,7 @@ typedef struct {
     int n_zfb, n_zfw, n_zgb, n_zgw, n_jf, n_jg;
     int n_zlib, n_zliw, n_jlie, n_zdib, n_zdiw, n_jdie, n_jstun;
     int n_jump, n_land, n_kick, n_ckick, n_akick;
-    int n_s8b, n_s8w, n_s8o, n_s8l, n_s8m, n_dash, n_b48, n_b50;
+    int n_s8b, n_s8w, n_s8o, n_s8l, n_s8m, n_dash, n_b48, n_b50, n_crouch;
     int nr8[5][4];
     int k3x, k3y, k3w, k3h, k3z, k3zs, k3dmg, k3react;
     int k4x, k4y, k4w, k4h, k4z, k4zs, k4dmg, k4react;
@@ -126,7 +126,7 @@ typedef struct {
     int objn[4];
     Frame *jump, *land, *kick, *ckick, *akick;
     Frame *s8b, *s8w, *s8o, *s8l, *s8m;
-    Frame *dash, *b48, *b50;
+    Frame *dash, *b48, *b50, *crouch;
     Frame *r8[5][4];
     int n_rows, row_i, trigger;
     int rows[28][8];
@@ -216,7 +216,7 @@ static Scene *load_scene(const char *path) {
     if (!fp) return NULL;
     scene = calloc(1, sizeof(Scene));
     if (!scene || !rd(fp, magic, 4) || memcmp(magic, "DD1S", 4) != 0) goto fail;
-    if (!ru16(fp, &version) || version != 13) goto fail;
+    if (!ru16(fp, &version) || version != 14) goto fail;
     if (!ru16(fp, &vw) || !ru16(fp, &vh)) goto fail;
     if (!ri32(fp, &scene->map_w) || !ri32(fp, &scene->map_h)) goto fail;
     if (!ri32(fp, &scene->spawn_x) || !ri32(fp, &scene->spawn_z)) goto fail;
@@ -368,8 +368,8 @@ static Scene *load_scene(const char *path) {
     if (!ru16(fp, &scene->n_jump) || !ru16(fp, &scene->n_land) || !ru16(fp, &scene->n_kick) ||
         !ru16(fp, &scene->n_ckick) || !ru16(fp, &scene->n_akick) || !ru16(fp, &scene->n_s8b) ||
         !ru16(fp, &scene->n_s8w) || !ru16(fp, &scene->n_s8o) || !ru16(fp, &scene->n_s8l) ||
-        !ru16(fp, &scene->n_s8m) || !ru16(fp, &scene->n_dash) || !ru16(fp, &scene->n_b48) ||
-        !ru16(fp, &scene->n_b50))
+        !ru16(fp, &scene->n_s8m) ||         !ru16(fp, &scene->n_dash) || !ru16(fp, &scene->n_b48) ||
+        !ru16(fp, &scene->n_b50) || !ru16(fp, &scene->n_crouch))
         goto fail;
     scene->jump = load_frames(fp, scene->n_jump);
     scene->land = load_frames(fp, scene->n_land);
@@ -384,6 +384,7 @@ static Scene *load_scene(const char *path) {
     scene->dash = load_frames(fp, scene->n_dash);
     scene->b48 = load_frames(fp, scene->n_b48);
     scene->b50 = load_frames(fp, scene->n_b50);
+    scene->crouch = load_frames(fp, scene->n_crouch);
     for (vw = 0; vw < 5; vw++) {
         int phase;
         for (phase = 0; phase < 4; phase++) {
@@ -419,7 +420,7 @@ static Scene *load_scene(const char *path) {
         goto fail;
     if (!scene->jump || !scene->land || !scene->kick || !scene->ckick || !scene->akick ||
         !scene->s8b || !scene->s8w || !scene->s8o || !scene->s8l || !scene->s8m ||
-        !scene->dash || !scene->b48 || !scene->b50)
+        !scene->dash || !scene->b48 || !scene->b50 || !scene->crouch)
         goto fail;
     scene->trigger = -1;
     if (!scene->idle || !scene->walk || !scene->bash || !scene->will || !scene->p28 || !scene->p29 ||
@@ -623,6 +624,7 @@ static Frame *hero_pose(const Scene *scene, const Body *body) {
     if (body->mode == 11 && scene->n_jump) return &scene->jump[body->frame % scene->n_jump];
     if (body->mode == 13 && scene->n_land) return &scene->land[body->frame % scene->n_land];
     if (body->mode == 16 && scene->n_dash) return &scene->dash[body->frame % scene->n_dash];
+    if (body->mode == 21 && scene->n_crouch) return &scene->crouch[0];
     if (body->punch_act == 48 && scene->n_b48) return &scene->b48[body->frame % scene->n_b48];
     if (body->punch_act == 50 && scene->n_b50) return &scene->b50[body->frame % scene->n_b50];
     if (body->punch_act == 30 && scene->n_kick) return &scene->kick[body->frame % scene->n_kick];
@@ -1463,14 +1465,34 @@ static void push_mover(Scene *scene, Body *hero, int *x_fp, int *z_fp, int facin
     }
 }
 
-static void step_body(Scene *scene, Body *body, int left, int right, int up, int down, int attack) {
+/* CTask::Caller walks priority 0 upward, and within a priority the
+   oldest task is first (Entry appends). The player is priority 2 and
+   enemies are priority 3, so Jimmy's proc runs before theirs. */
+static void step_hero(Scene *scene, Body *body, int left, int right, int up, int down, int attack) {
     Frame *group;
     int count;
     int any = left || right || up || down;
     int i;
-    step_foes(scene, body);
-    step_world(scene);
     if (body->mode == 4) return;
+    if (body->mode == 21) {
+        /* Act 25 NEXT's into act 26 on the same tick. Act 26 is pattern
+           11 for 45 frames, then STOP. GT_Crouch then sets act 27, whose
+           NEXT 0 returns to idle. A direction or a jump edge is MoveCheck
+           leaving the crouch. Crouch attacks (acts 0x33/0x34) are not wired. */
+        if (attack == 3 || left || right || up || down) {
+            body->mode = 0;
+            body->vx = 0;
+            body->timer = 0;
+        } else {
+            if (body->timer > 0) body->timer--;
+            if (body->timer <= 0) {
+                body->mode = 0;
+                body->vx = 0;
+                restart(body, 0);
+            }
+            return;
+        }
+    }
     if (body->mode == 11 || body->mode == 14) {
         int n = body->mode == 14 ? scene->n_akick : scene->n_jump;
         body->y_fp += body->yv;
@@ -1701,6 +1723,17 @@ static void step_body(Scene *scene, Body *body, int left, int right, int up, int
             return;
         }
     }
+    if (body->mode == 0 && body->punch_act == 0 && attack == 5) {
+        /* Button 9. Act 25 NEXT's into act 26 immediately. The hold is
+           45 frames of pattern 11. Timer 44 plus this entry tick is 45. */
+        body->mode = 21;
+        body->timer = 45;
+        body->frame = 0;
+        body->shown = 1;
+        body->vx = 0;
+        body->punch_act = 0;
+        return;
+    }
     if (body->mode == 0 && body->punch_act == 0 && attack == 3) {
         /* ciBillyMoveData +0x18/-0x1c. Left keeps the record: vx -393216,
            x accel +16384. Right negates both, so vx +393216 and accel -16384.
@@ -1835,6 +1868,12 @@ static void step_body(Scene *scene, Body *body, int left, int right, int up, int
     body->timer = group[body->frame].duration;
 }
 
+static void step_body(Scene *scene, Body *body, int left, int right, int up, int down, int attack) {
+    step_hero(scene, body, left, right, up, down, attack);
+    step_foes(scene, body);
+    step_world(scene);
+}
+
 static void paint(Scene *scene, const Body *hero, uint8_t *fb) {
     int camera, ground, sx, sy, i;
     Frame *pose;
@@ -1938,34 +1977,57 @@ static int write_ppm(const char *path, const uint8_t *fb) {
 
 /* Scripted stick and the one punch button. Not a KO hook: punches go through
    the normal lunge and the enemies die only if that hit connects. */
-static void route_buttons(Scene *scene, Body *hero, int *left, int *right, int *attack) {
-    int f, best = 100000, behind = 100000, bdz = 100;
-    int hx, hz;
+static void route_buttons(Scene *scene, Body *hero, int *left, int *right,
+                           int *up, int *down, int *attack) {
+    int f, best = 100000, behind = 100000, bdz = 100, bz = 0;
+    int hx, hz, door, near = 100000, nz = 0;
     if (hero->mode != 0 || hero->punch_act != 0) return;
     hx = hero->x_fp >> 16;
     hz = hero->z_fp >> 16;
+    door = hx > 760;
     for (f = 0; f < scene->n_foes; f++) {
         int dx, adz;
         if (!scene->foes[f].alive || scene->foes[f].mode == 4) continue;
         dx = scene->foes[f].x - hx;
         adz = scene->foes[f].z - hz;
         if (adz < 0) adz = -adz;
+        if (adz + (dx < 0 ? -dx : dx) < near) {
+            near = adz + (dx < 0 ? -dx : dx);
+            nz = scene->foes[f].z;
+        }
         if (dx <= -16 && -dx < behind) behind = -dx;
         if (dx > -16 && dx < best && adz < 18) {
             best = dx;
             bdz = adz;
+            bz = scene->foes[f].z;
         }
     }
-    if (best < 56 && best > -40 && bdz < 14) *attack = 2;
+    /* Past the door the pair finishes wall entry below Jimmy's lane.
+       Close Z, then button 7 up (act 50) when the box can reach. */
+    if (door && best < 70 && best > -10 && bdz <= 6) {
+        if (best < 42) {
+            *attack = 4;
+            *up = 1;
+        } else *attack = 2;
+    } else if (door && best < 160 && bdz > 6) {
+        if (best < 80) *left = 1;
+        else *right = 1;
+        if (bz < hz) *down = 1;
+        else *up = 1;
+    } else if (best < 56 && best > -40 && bdz < 14) *attack = 2;
     else if (best < 36) *left = 1;
     else if (best == 100000 && behind < 800) *left = 1;
     else *right = 1;
+    if (door && *attack == 0 && near < 400 && nz != hz) {
+        if (nz < hz) *down = 1;
+        else *up = 1;
+    }
 }
 
 #if defined(_WIN32)
 #include <windows.h>
 
-static int g_left, g_right, g_up, g_down, g_atk, g_kick, g_jump, g_b7, g_quit;
+static int g_left, g_right, g_up, g_down, g_atk, g_kick, g_jump, g_b7, g_crouch, g_quit;
 static uint8_t *g_fb;
 
 typedef struct {
@@ -1988,6 +2050,7 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         if (wp == 'K') g_kick = down;
         if (wp == VK_SPACE) g_jump = down;
         if (wp == 'U') g_b7 = down;
+        if (wp == 'C') g_crouch = down;
         if (wp == VK_ESCAPE) g_quit = 1;
         return 0;
     }
@@ -2011,7 +2074,7 @@ static int run_window(Scene *scene) {
     WNDCLASS wc;
     HWND hwnd;
     Body hero;
-    int was_atk = 0, was_kick = 0, was_jump = 0, was_b7 = 0;
+    int was_atk = 0, was_kick = 0, was_jump = 0, was_b7 = 0, was_crouch = 0;
     MSG msg;
     memset(&wc, 0, sizeof(wc));
     wc.lpfnWndProc = wnd_proc;
@@ -2046,15 +2109,16 @@ static int run_window(Scene *scene) {
             DispatchMessage(&msg);
         }
         if (getenv("ROUTE")) {
-            int left = 0, right = 0, attack = 0;
-            route_buttons(scene, &hero, &left, &right, &attack);
-            step_body(scene, &hero, left, right, 0, 0, was_atk ? 0 : attack);
+            int left = 0, right = 0, up = 0, down = 0, attack = 0;
+            route_buttons(scene, &hero, &left, &right, &up, &down, &attack);
+            step_body(scene, &hero, left, right, up, down, was_atk ? 0 : attack);
             was_atk = attack;
         } else {
             {
                 int action = 0;
                 if (g_jump && !was_jump) action = 3;
                 else if (g_b7 && !was_b7) action = 4;
+                else if (g_crouch && !was_crouch) action = 5;
                 else if (g_kick && !was_kick) action = 2;
                 else if (g_atk && !was_atk) action = 1;
                 step_body(scene, &hero, g_left, g_right, g_up, g_down, action);
@@ -2062,6 +2126,7 @@ static int run_window(Scene *scene) {
                 was_kick = g_kick;
                 was_jump = g_jump;
                 was_b7 = g_b7;
+                was_crouch = g_crouch;
             }
         }
         paint(scene, &hero, g_fb);
@@ -2085,8 +2150,8 @@ static int run_window(Scene *scene) {
     Body hero;
     uint8_t *fb;
     uint8_t *scaled;
-    int atk = 0, kick = 0, jump = 0, b7 = 0;
-    int was_atk = 0, was_kick = 0, was_jump = 0, was_b7 = 0;
+    int atk = 0, kick = 0, jump = 0, b7 = 0, crouch = 0;
+    int was_atk = 0, was_kick = 0, was_jump = 0, was_b7 = 0, was_crouch = 0;
     int left = 0, right = 0, up = 0, down = 0;
     if (!display) {
         fprintf(stderr, "no X display\n");
@@ -2125,12 +2190,14 @@ static int run_window(Scene *scene) {
             if (key == XK_k) kick = pressed;
             if (key == XK_space) jump = pressed;
             if (key == XK_u) b7 = pressed;
+            if (key == XK_c) crouch = pressed;
             if (key == XK_Escape) goto done;
         }
         {
             int action = 0;
             if (jump && !was_jump) action = 3;
             else if (b7 && !was_b7) action = 4;
+            else if (crouch && !was_crouch) action = 5;
             else if (kick && !was_kick) action = 2;
             else if (atk && !was_atk) action = 1;
             step_body(scene, &hero, left, right, up, down, action);
@@ -2138,6 +2205,7 @@ static int run_window(Scene *scene) {
             was_kick = kick;
             was_jump = jump;
             was_b7 = b7;
+            was_crouch = crouch;
         }
         paint(scene, &hero, fb);
         {
@@ -2282,7 +2350,7 @@ static int run_dump(Scene *scene, const char *path, int frames, int hold) {
             fired = 1;
         }
         if (hold == 13 && i > 40 && hero.mode == 0) attack = 1;
-        if (hold == 15) route_buttons(scene, &hero, &left, &right, &attack);
+        if (hold == 15) route_buttons(scene, &hero, &left, &right, &up, &down, &attack);
         if (hold == 16 && i == 0) attack = 3;
         if (hold == 17 && i == 2) attack = 2;
         if (hold == 18) { right = 1; if (i == 0) attack = 3; }
@@ -2292,6 +2360,8 @@ static int run_dump(Scene *scene, const char *path, int frames, int hold) {
         if (hold == 22 && i == 0) { down = 1; attack = 4; }
         if (hold == 24 && i == 0) { down = 1; attack = 4; }
         if (hold == 25 && i == 0) { down = 1; attack = 4; }
+        if (hold == 26 && i == 0) attack = 5;
+        if (hold == 27) { if (i == 0) attack = 5; else right = 1; }
         if (hold == 14 && (i == 43 || i == 132)) {
             int f;
             for (f = 0; f < scene->n_foes; f++) {
@@ -2318,7 +2388,7 @@ static int run_dump(Scene *scene, const char *path, int frames, int hold) {
     printf("cam %d lock %d nf %d\n", scene->camera, scene->lock_i, scene->n_foes);
     if ((hold >= 5 && hold <= 9) || hold == 12 || hold == 13 || hold == 14 || hold == 15 ||
         hold == 16 || hold == 17 || hold == 21 || hold == 22 || hold == 23 ||
-        hold == 24 || hold == 25) {
+        hold == 24 || hold == 25 || hold == 26 || hold == 27) {
         printf("hp %d", hero.hp);
         for (i = 0; i < scene->n_foes; i++) printf(" %d", scene->foes[i].hp);
         printf(" x");
@@ -2364,6 +2434,8 @@ int main(int argc, char **argv) {
         if (argc > 5 && strcmp(argv[5], "b7d") == 0) hold = 22;
         if (argc > 5 && strcmp(argv[5], "b7l") == 0) hold = 24;
         if (argc > 5 && strcmp(argv[5], "b7k") == 0) hold = 25;
+        if (argc > 5 && strcmp(argv[5], "crouch") == 0) hold = 26;
+        if (argc > 5 && strcmp(argv[5], "cwalk") == 0) hold = 27;
         if (argc > 5 && strcmp(argv[5], "entry") == 0) hold = 23;
         scene = load_scene(bin);
         if (!scene) {

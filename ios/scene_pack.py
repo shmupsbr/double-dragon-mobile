@@ -220,7 +220,7 @@ def build(blob: bytes, obm_zip: Path) -> tuple[bytes, dict]:
     payload += struct.pack(
         "<4sHHHiiiiiiiiiiHHHH",
         b"DD1S",
-        13,
+        14,
         480,
         320,
         info["pixel_w"],
@@ -382,8 +382,10 @@ def build(blob: bytes, obm_zip: Path) -> tuple[bytes, dict]:
             continue
         image, ox, oy = _pose(sheets, jrect, jimmy_img, names, pattern_parts(jpat, jpoint, frame.pattern))
         b50.append((frame.duration, frame.flags, ox, oy, image))
-    extra = (jump, land, kick, ckick, akick, s8b, s8w, s8o, s8l, s8m, dash, b48, b50)
-    payload += struct.pack("<13H", *(len(g) for g in extra))
+    # Act 25 NEXT's into act 26 on the same ActionSub. Act 26 is the crouch hold.
+    crouch = _frames(blob, sheets, names, jrect, jpat, jpoint, jimmy_img, 0xAA5C4, 0xAA5E4)
+    extra = (jump, land, kick, ckick, akick, s8b, s8w, s8o, s8l, s8m, dash, b48, b50, crouch)
+    payload += struct.pack("<14H", *(len(g) for g in extra))
     for group in extra:
         put_group(group)
     # Reaction 8 defender: act 18 air, act 41 down, act 20 get-up, act 24 KO.

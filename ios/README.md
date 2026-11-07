@@ -31,7 +31,7 @@ Os dois são:
 - Definição 0, personagem 12 de `csEnemyDataTbl` (`0xc55d0`): tipo 6, desenho 8, vida 40. Desenho 8 usa os retângulos de `ciZakoC00Rect` e `ciZakoC01ImgNo` → `WILLIAMS.obm`.
 - Definição 1, personagem 4: tipo 4, desenho 6, vida 30. Desenho 6 usa os mesmos retângulos e `ciZakoC00ImgNo` → `BASH.obm`.
 
-A flag `0x2A` tem o bit 1. `EncountEnemyCreate` (`0x178dc`) então faz X = câmera + `+0x47a8` + 20 = 500. O Z é 56 e 8. Os dois nascem fora da borda direita, no ato 0 (`0xb2174`, padrões 0–5, dois quadros). `GT_ZakoMoveCheck` só aplica velocidade se os bits de tecla do zako já estiverem preenchidos. Quem escreve esses bits não foi lido, então eles ficam parados.
+A flag `0x2A` tem o bit 1. `EncountEnemyCreate` (`0x178dc`) então faz X = câmera + `+0x47a8` + 20 = 500. O Z é 56 e 8. `COM_SeqCall` (`0x16be0`) zera os bits de tecla e chama o comando em `task+0x14c`. O índice 0 é `COM_Ready` (`0x15e5c`). Para os tipos 4 e 6, se `|dX| > 60` e `(rng & 0xf) == 0`, o comando passa a 3 (`COM_MoveX`, `0x1692c`) e anda a `ciZakoMoveData[0]` = −262144. Se `|dZ| > 3` e `(rng & 7) == 0`, o comando 4 (`COM_MoveZ`) usa ±262144. Dentro de 100 px em X e 7 px em Z, `GT_ZakoAttackCheck` (`0x35330`) escolhe o ato 45. O gerador é o MT19937 temperado em `0x13770` e deslocado 1 bit em `0x137a4`. A semente aqui é 1; o jogo usa o relógio.
 
 `J` é o índice 4 de `PL_PlayerKeySet` (máscara crua `0x20`). `GT_AttackCheck` (`0x35fa8`) chama `GT_BodyDmgTaskCheck` (`0x33c00`): se alguém está a até 90 px em X (`0x5a0000`) e 10 px em Z (`0xa0000`), o ato é 45; senão alterna 28 e 29 pelo bit 2 de `task+0x44`.
 
@@ -41,13 +41,17 @@ A flag `0x2A` tem o bit 1. `EncountEnemyCreate` (`0x178dc`) então faz X = câme
 
 A janela de golpe é `(flags & 0x28) == 8`. `HitRangeCheck` (`0xd6fc`) testa três retângulos. O registro 2 de `ciJimmyAtkData` (`0xc67c4`) é (−69, −58, 65, 11, −3, 7), dano 8 em `+0xc`. O registro 5 é (−34, −105, 34, 70, −3, 7), dano 12. A caixa de dor do ato 0 é o índice 1 de `ciZakoC00BodyData` (`0xc6ea6`): (−18, −66, 31, 66, −2, 5). C00 e C01 compartilham retângulos; o ponteiro por tipo em `+0x4dd0` não foi conferido um a um.
 
-`EncountEnemyCreate` grava −1 em `task+0x16d`. `DamageCalc` (`0xdfcc`) passa o meio-word de `+0xc` a `DamageCalcSub` (`0xd85c`). Com `applet+0x2580` em zero e esse byte negativo, o retorno é o dano mais a metade (`add` com `asr #1`): 12 vira 18, 8 vira 12. `+0x25a4` começa em 0 (`0x990c`) e os outros multiplicadores desse campo não entram. Não achei um `str` em `+0x2580`; a conta usa o valor zero de um applet limpo. O bit `0x200000` de `+0x2538` também fica de fora nesse caso. Quando a vida chega a 0, `DamageCalc` chama `0x36a20`. O ato da queda não foi reduzido, então o corpo some em vez de ganhar uma pose inventada.
+`InitOptionData` grava 1 em `+0x76c` e `LoadOptionData_fromSaveArray` copia isso para `+0x24e2`. `InitSaveData` zera a palavra em `+0x24e0` antes. A palavra de dano `+0x2580` só é escrita em `ReadyCharSelectScreen` se `+0x2538` tiver o bit `0x800000` (grava 1) ou `0x200000` (copia o byte). Nenhum dos dois bits aparece no caminho do estágio 1, então `DamageCalcSub` fica no braço de dificuldade 0. Defensor com `+0x16d` negativo (o inimigo nasce com −1) soma a metade: 12 vira 18. O Jimmy nasce com o byte 0, então perde um quarto: o soco zako de 11 vira 9. A vida do Jimmy sai da tabela em `0xc54ac`, entradas 0 e 1 = 100.
+
+O registro 5 do Jimmy e o registro 6 do zako têm o byte `+0x11` = 5. `DamagedCheck` (`0xf074`) no caso 5 chama `GT_SetFukiMove` e, no chão, o ato 10; `GT_FukiDownDamage` (`0x32b90`), com a flag `0x400000` ainda limpa, troca para o ato 15. O ato 23 (inimigo) ou 42 (Jimmy) só entra com essa flag, e ela não é armada nesse caminho. `0x36a20` é `GT_BossKOCheck`: não escolhe pose. Ele liga bits em `+0x2538` e `task+0x44` quando `+0x48` tem `0x400` e a vida chegou a 0. Essa flag `0x400` não foi achada no spawn, então o KO de chefe não dispara. Com vida 0 o corpo fica na pose do ato 15.
 
 `ciDrawFlag` (`0x604d0`) troca 0↔1 quando `facing` é 1. A vista espelha o corpo nesse caso. O sombreador que consome a flag não foi aberto instrução por instrução.
 
 ## O que ainda não é o jogo
 
-Não há perseguição, nem o ato de queda, nem `FloorWallCheck` (`0x12c28`). O limite é a largura do mapa e Z 0..95. O ângulo do analógico em `GamePad::SetKey` cai nos mesmos quatro índices, mas a ordem dos argumentos do `atan` não foi fechada; o teclado segue o sinal da velocidade. Isto é o primeiro encontro do estágio 1, não o jogo.
+`DrawZSort` (`0xd50c`) desenha o maior Z primeiro. Z igual usa o id da task; o id menor fica na frente. `COM_MoveZ` sobe o BASH até a linha do Jimmy, e aí os dois ocupam a mesma profundidade.
+
+`FloorWallCheck` (`0x12c28`) continua sem o miolo. O limite é a largura do mapa e Z 0..95. O ângulo do analógico não foi fechado. Isto é o primeiro encontro com a decisão original de andar e socar, não o jogo, e não a queda completa.
 
 ## Como rodar
 
@@ -64,12 +68,13 @@ make -C ios linux
 make -C ios windows
 ```
 
-`J` dispara o índice 4. `--dump quadro.ppm 100 meet` anda até X≥430 e dá um soco: a vida impressa é `hp 22 30` (Williams 40−18, BASH intocado).
+`J` dispara o índice 4. `--dump quadro.ppm 240 watch` deixa os dois andarem: `hp 100 40 30 x 120 120`. `--dump quadro.ppm 180 fight` anda e soca quando o inimigo está à frente: `hp 82 22 12` (Jimmy 100−9−9, Williams 40−18, BASH 30−18).
 
-Nesta máquina o Wine 9 rodou dois modos do `scene_view.exe`:
+Nesta máquina o Wine 9 rodou o `scene_view.exe` de 64 bits (o aviso de `wine32` apareceu e não impediu):
 
-- `--dump quadro.ppm 16 right` imprimiu `x 148 z 56 act 1 frame 4 facing 1`.
-- Sem `--dump`, a janela Win32 abriu em 970×647 no display `:1`. O desenho usa máscaras `BI_BITFIELDS` (R em 0x000000FF) porque o quadro está em RGBA e o `BI_RGB` de 32 bits trocava vermelho com azul. Segurar Right andou o Jimmy e trouxe o BASH pela direita. Escape fechou a janela. O aviso do Wine sobre `wine32` apareceu; o executável é 64 bits e a janela mesmo assim abriu.
+- `--dump 16 right` imprimiu `x 148 z 56 act 1 frame 4 facing 1`.
+- `--dump 240 watch` e `--dump 180 fight` imprimiram as mesmas linhas do binário Linux.
+- Sem `--dump`, a janela abriu no display `:1`. Em cerca de dois segundos os inimigos entraram sozinhos e um deles estava no soco. Escape fechou.
 
 ```bash
 PYTHONPATH=/workspace python3 -m unittest tests.test_ios_anim tests.test_scene_dump -v

@@ -32,10 +32,13 @@ class SceneDumpTest(unittest.TestCase):
         # 16 frames * 360448 / 65536 = 88, and 60 + 88 = 148.
         self.assertEqual(self.dump(16, "right"), "x 148 z 56 act 1 frame 4 facing 1")
 
-    def test_close_punch_uses_attack_record_five(self):
-        text = self.dump(100, "meet")
-        lines = text.splitlines()
-        self.assertEqual(lines[1], "hp 22 30")
+    def test_enemies_walk_in_and_stop_at_the_move_threshold(self):
+        text = self.dump(240, "watch")
+        self.assertIn("hp 100 40 30 x 120 120", text)
+
+    def test_trade_uses_both_damage_arms(self):
+        text = self.dump(180, "fight")
+        self.assertIn("hp 82 22 12", text)
 
     def test_up_changes_depth_and_keeps_idle(self):
         self.assertEqual(self.dump(4, "up"), "x 60 z 72 act 0 frame 2 facing 1")

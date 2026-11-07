@@ -21,6 +21,10 @@ from ios.macho_anim import (
     JIMMY_ACT45,
     JIMMY_IMG,
     ZAKO_C00_ACT0,
+    ZAKO_C00_ACT1,
+    ZAKO_C00_ACT10,
+    ZAKO_C00_ACT15,
+    ZAKO_C00_ACT45,
     ZAKO_C00_IMG,
     ZAKO_C01_IMG,
     act_span,
@@ -28,7 +32,10 @@ from ios.macho_anim import (
     billy_move,
     first_wave,
     floor_ground,
+    hero_hp,
     hurt_record,
+    zako_attack_record,
+    zako_move,
     jimmy_tables,
     pattern_parts,
     read_i16,
@@ -139,7 +146,19 @@ def build(blob: bytes, obm_zip: Path) -> tuple[bytes, dict]:
     punch28 = _frames(blob, sheets, names, jimmy_rects, jimmy_pat, jimmy_points, jimmy_img, JIMMY_ACT28, JIMMY_ACT29)
     punch29 = _frames(blob, sheets, names, jimmy_rects, jimmy_pat, jimmy_points, jimmy_img, JIMMY_ACT29, 0xAA708)
     punch45 = _frames(blob, sheets, names, jimmy_rects, jimmy_pat, jimmy_points, jimmy_img, JIMMY_ACT45, 0xAAB38)
+    jdown = _frames(blob, sheets, names, jimmy_rects, jimmy_pat, jimmy_points, jimmy_img, 0xAA27C, 0xAA2FC)
+    jland = _frames(blob, sheets, names, jimmy_rects, jimmy_pat, jimmy_points, jimmy_img, 0xAA31C, 0xAA368)
+    zwalk_b = _frames(blob, sheets, names, zako_rects, zako_pat, zako_points, zako_img, ZAKO_C00_ACT1, 0xB222C)
+    zwalk_w = _frames(blob, sheets, names, zako_rects, zako_pat, zako_points, will_img, ZAKO_C00_ACT1, 0xB222C)
+    zpunch_b = _frames(blob, sheets, names, zako_rects, zako_pat, zako_points, zako_img, ZAKO_C00_ACT45, 0xB2B38)
+    zpunch_w = _frames(blob, sheets, names, zako_rects, zako_pat, zako_points, will_img, ZAKO_C00_ACT45, 0xB2B38)
+    zdown_b = _frames(blob, sheets, names, zako_rects, zako_pat, zako_points, zako_img, ZAKO_C00_ACT10, 0xB2410)
+    zdown_w = _frames(blob, sheets, names, zako_rects, zako_pat, zako_points, will_img, ZAKO_C00_ACT10, 0xB2410)
+    zland_b = _frames(blob, sheets, names, zako_rects, zako_pat, zako_points, zako_img, ZAKO_C00_ACT15, 0xB24DC)
+    zland_w = _frames(blob, sheets, names, zako_rects, zako_pat, zako_points, will_img, ZAKO_C00_ACT15, 0xB24DC)
     wave = first_wave(blob)
+    zatk = zako_attack_record(blob, 6)
+    zvx, zvz = zako_move(blob)
     atk = attack_record(blob, 2)
     close = attack_record(blob, 5)
     hurt = hurt_record(blob, 1)
@@ -157,7 +176,7 @@ def build(blob: bytes, obm_zip: Path) -> tuple[bytes, dict]:
     payload += struct.pack(
         "<4sHHHiiiiiiiiiiHHHH",
         b"DD1S",
-        2,
+        3,
         480,
         320,
         info["pixel_w"],
@@ -184,6 +203,13 @@ def build(blob: bytes, obm_zip: Path) -> tuple[bytes, dict]:
     for _param, _char, x, z, hp in wave:
         sheet = 1 if _char == 12 else 0
         payload += struct.pack("<4i", x, z, hp, sheet)
+    payload += struct.pack(
+        "<6H4i7h",
+        len(zwalk_b), len(zwalk_w), len(zpunch_b), len(zpunch_w), len(zdown_b), len(jdown),
+        zvx, zvz, hero_hp(blob, 1), zatk[6],
+        zatk[0], zatk[1], zatk[2], zatk[3], zatk[4], zatk[5], zatk[6],
+    )
+    payload += struct.pack("<4H", len(zdown_w), len(zland_b), len(zland_w), len(jland))
     payload += struct.pack(f"<{len(ground)}i", *ground)
 
     def put_image(image: Image.Image) -> None:
@@ -196,7 +222,10 @@ def build(blob: bytes, obm_zip: Path) -> tuple[bytes, dict]:
 
     put_image(far)
     put_image(main)
-    for group in (idle, walk, bash, will, punch28, punch29, punch45):
+    for group in (
+        idle, walk, bash, will, punch28, punch29, punch45,
+        zwalk_b, zwalk_w, zpunch_b, zpunch_w, zdown_b, zdown_w, jdown, zland_b, zland_w, jland,
+    ):
         put_group(group)
     meta = {
         "spawn": (spawn_x, spawn_z),

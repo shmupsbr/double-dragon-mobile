@@ -64,6 +64,13 @@ ZAKO_C00_PAT_POINT = 0x7E48A
 ZAKO_C00_IMG = 0x7E56A
 ZAKO_C01_IMG = 0x7E58C
 ZAKO_C00_ACT0 = 0xB2174
+ZAKO_C00_ACT1 = 0xB21D0
+ZAKO_C00_ACT10 = 0xB23F0
+ZAKO_C00_ACT15 = 0xB2490
+ZAKO_C00_ACT45 = 0xB2AB4
+ZAKO_MOVE = 0xC6C50
+ZAKO_ATK = 0xC6DD6
+HERO_HP_TBL = 0xC54AC
 ZAKO_BODY = 0xC6EA6
 JIMMY_ACT28 = 0xAA608
 JIMMY_ACT29 = 0xAA688
@@ -320,6 +327,24 @@ def attack_record(blob: bytes, index: int) -> tuple[int, ...]:
     """One _ATK_DATA. HitRangeCheck reads x,y,w,h,z,zs. DamageCalc reads +0xc."""
     raw = _load(blob, JIMMY_ATK + index * 26, 26)
     return struct.unpack("<13h", raw)
+
+
+def zako_attack_record(blob: bytes, index: int) -> tuple[int, ...]:
+    """ciZakoC00AtkData. Act 45's HITA selects index 6. Byte +0x11 is the reaction."""
+    raw = _load(blob, ZAKO_ATK + index * 26, 26)
+    geom = struct.unpack("<13h", raw)
+    return geom + (raw[0x11],)
+
+
+def hero_hp(blob: bytes, index: int) -> int:
+    """GT_CreatePlayerTask loads this int16 at stride 4. Entries 0 and 1 are both 100."""
+    raw = _load(blob, HERO_HP_TBL + index * 4, 2)
+    return struct.unpack("<h", raw)[0]
+
+
+def zako_move(blob: bytes) -> tuple[int, int]:
+    words = read_i32(blob, ZAKO_MOVE, 2)
+    return words[0], words[1]
 
 
 def hurt_record(blob: bytes, index: int) -> tuple[int, ...]:

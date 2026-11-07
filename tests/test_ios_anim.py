@@ -19,7 +19,10 @@ from ios.macho_anim import (
     encryption,
     first_wave,
     floor_ground,
+    hero_hp,
     hurt_record,
+    zako_attack_record,
+    zako_move,
     jimmy_act0,
     jimmy_tables,
     key_config,
@@ -160,6 +163,15 @@ class IosAnimTest(unittest.TestCase):
         self.assertEqual(wave[1][2], 500)
         self.assertEqual(wave[1][3], 8)
         self.assertEqual(wave[1][4], 30)
+
+    def test_zako_punch_reaches_the_player_scale(self):
+        self.assertEqual(zako_move(self.blob), (-262144, 262144))
+        record = zako_attack_record(self.blob, 6)
+        self.assertEqual(record[:6], (-40, -86, 40, 44, -3, 7))
+        self.assertEqual(record[6], 11)
+        self.assertEqual(record[-1], 5)
+        self.assertEqual(hero_hp(self.blob, 0), 100)
+        self.assertEqual(hero_hp(self.blob, 1), 100)
 
     def test_bash_act_uses_its_own_patterns(self):
         frames, opcode = act_span(self.blob, ZAKO_C00_ACT0, ZAKO_C00_ACT0 + 0x5C)

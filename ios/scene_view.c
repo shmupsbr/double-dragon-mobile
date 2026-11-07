@@ -58,6 +58,7 @@ typedef struct {
     int n_zlib, n_zliw, n_jlie, n_zdib, n_zdiw, n_jdie, n_jstun;
     int n_jump, n_land, n_kick, n_ckick, n_akick;
     int n_s8b, n_s8w, n_s8o, n_s8l, n_s8m, n_dash, n_b48, n_b50;
+    int nr8[5][4];
     int k3x, k3y, k3w, k3h, k3z, k3zs, k3dmg, k3react;
     int k4x, k4y, k4w, k4h, k4z, k4zs, k4dmg, k4react;
     int k18x, k18y, k18w, k18h, k18z, k18zs, k18dmg, k18react;
@@ -126,6 +127,7 @@ typedef struct {
     Frame *jump, *land, *kick, *ckick, *akick;
     Frame *s8b, *s8w, *s8o, *s8l, *s8m;
     Frame *dash, *b48, *b50;
+    Frame *r8[5][4];
     int n_rows, row_i, trigger;
     int rows[28][8];
     int camera, lock_i, quota, phase;
@@ -214,7 +216,7 @@ static Scene *load_scene(const char *path) {
     if (!fp) return NULL;
     scene = calloc(1, sizeof(Scene));
     if (!scene || !rd(fp, magic, 4) || memcmp(magic, "DD1S", 4) != 0) goto fail;
-    if (!ru16(fp, &version) || version != 12) goto fail;
+    if (!ru16(fp, &version) || version != 13) goto fail;
     if (!ru16(fp, &vw) || !ru16(fp, &vh)) goto fail;
     if (!ri32(fp, &scene->map_w) || !ri32(fp, &scene->map_h)) goto fail;
     if (!ri32(fp, &scene->spawn_x) || !ri32(fp, &scene->spawn_z)) goto fail;
@@ -382,6 +384,19 @@ static Scene *load_scene(const char *path) {
     scene->dash = load_frames(fp, scene->n_dash);
     scene->b48 = load_frames(fp, scene->n_b48);
     scene->b50 = load_frames(fp, scene->n_b50);
+    for (vw = 0; vw < 5; vw++) {
+        int phase;
+        for (phase = 0; phase < 4; phase++) {
+            if (!ru16(fp, &scene->nr8[vw][phase])) goto fail;
+        }
+    }
+    for (vw = 0; vw < 5; vw++) {
+        int phase;
+        for (phase = 0; phase < 4; phase++) {
+            scene->r8[vw][phase] = load_frames(fp, scene->nr8[vw][phase]);
+            if (!scene->r8[vw][phase] || scene->nr8[vw][phase] <= 0) goto fail;
+        }
+    }
     if (!rs16(fp, &scene->k3x) || !rs16(fp, &scene->k3y) || !rs16(fp, &scene->k3w) ||
         !rs16(fp, &scene->k3h) || !rs16(fp, &scene->k3z) || !rs16(fp, &scene->k3zs) ||
         !rs16(fp, &scene->k3dmg) || !rs16(fp, &scene->k3react))
@@ -551,11 +566,23 @@ static void strike(Scene *scene, Body *body, const Frame *pose) {
         foe->hp -= scaled_damage(dmg, -1);
         if (foe->hp < 0) foe->hp = 0;
         if (body->punch_act == 48) {
-            /* Reaction 8 calls SetFukiMove. The record index lives in +0x174,
-               which this slice does not recover, so only the damage is applied. */
-            foe->mode = 0;
+            /* ciJimmyAtkData record 13: byte +0x0f is 3, byte +0x10 is 1.
+               DamagedCheck stores +0x174 from +0x0f and, because +0x10 is
+               non-negative, +0x175 = attacker facing XOR that byte.
+               GT_SetFukiMove record 3 is vx +131072, xa 0, yv -458752,
+               ya +212992. A nonzero +0x175 negates X only. Reaction 8
+               then runs GT_BackFukiDamage on defender act 18. */
+            int mirror = body->facing ^ 1;
+            foe->mode = 17;
+            foe->vx = mirror ? -131072 : 131072;
+            foe->yv = -458752;
+            foe->ya = 212992;
+            foe->vz = 0;
+            foe->y_fp = 0xEF << 16;
             foe->frame = 0;
+            foe->timer = 0;
             foe->shown = 0;
+            foe->cmd = 0;
             continue;
         }
         if (body->punch_act == 30) {
@@ -693,6 +720,15 @@ static int foe_kind(const Foe *foe) {
 static const Frame *foe_pose(const Scene *scene, const Foe *foe) {
     const Frame *frames;
     int n, kind;
+    if (foe->mode >= 17 && foe->mode <= 20) {
+        int phase = foe->mode - 17;
+        int sheet = foe->sheet;
+        int count;
+        if (sheet < 0 || sheet > 4 || scene->nr8[sheet][phase] <= 0) sheet = 0;
+        count = scene->nr8[sheet][phase];
+        if (count <= 0) return &scene->bash[0];
+        return &scene->r8[sheet][phase][foe->frame % count];
+    }
     if (foe->mode == 15) {
         const Frame *fr = scene->s8b;
         int count = scene->n_s8b;
@@ -810,9 +846,16 @@ static int slide_axis(const Scene *scene, int fixed, int from, int to, int verti
            store at 0x12ed8: pixel Z = Z - (Z & 15) - 1. */
         if (next_blocked && !here_blocked) break;
         if (next_blocked && here_blocked && vertical && step < 0) {
-            int edge = (cur & ~15) - 1;
-            if (edge < 0) edge = 0;
-            return edge;
+            /* Downward failed-scan. Format 5 can still have a free
+               subtile below this one; format 0 never does, so the
+               store is (Z & ~15) - 1. */
+            int cell = cur & ~15;
+            int s;
+            for (s = cur - 1; s >= cell; s--) {
+                if (!floor_blocked(scene, fixed, s)) return s;
+            }
+            if (cell - 1 < 0) return 0;
+            return cell - 1;
         }
         if (next_blocked) break;
         cur = nxt;
@@ -1086,6 +1129,74 @@ static void step_foes(Scene *scene, Body *hero) {
             }
             foe->x = foe->x_fp >> 16;
             foe->vz = 1;
+            continue;
+        }
+        if (foe->mode >= 17 && foe->mode <= 20) {
+            int phase = foe->mode - 17;
+            int sheet = foe->sheet;
+            int count;
+            const Frame *fr;
+            if (foe->mode == 17) {
+                int ox = foe->x_fp >> 16;
+                int oz = foe->z_fp >> 16;
+                foe->x_fp += foe->vx;
+                slide_body(scene, &foe->x_fp, &foe->z_fp, ox, oz);
+                foe->y_fp += foe->yv;
+                foe->yv += foe->ya;
+                if (foe->y_fp >= (0xEF << 16)) {
+                    /* GT_BackFukiDamage lands into GT_Down, act 0x29.
+                       The down timer starts on the next tick. */
+                    foe->y_fp = 0xEF << 16;
+                    foe->yv = 0;
+                    foe->ya = 0;
+                    foe->vx = 0;
+                    foe->mode = 18;
+                    foe->frame = 0;
+                    foe->shown = 0;
+                    foe->timer = 0;
+                    foe->x = foe->x_fp >> 16;
+                    foe->z = foe->z_fp >> 16;
+                    continue;
+                }
+            }
+            if (sheet < 0 || sheet > 4 || scene->nr8[sheet][phase] <= 0) sheet = 0;
+            count = scene->nr8[sheet][phase];
+            fr = &scene->r8[sheet][phase][count > 0 ? foe->frame % count : 0];
+            if (!foe->shown) {
+                foe->timer = fr->duration > 0 ? fr->duration : 1;
+                foe->shown = 1;
+            } else {
+                foe->timer--;
+                if (foe->timer <= 0) {
+                    if (count <= 0 || foe->frame + 1 >= count) {
+                        if (foe->mode == 18) {
+                            /* GT_Down on STOP. HP left is GT_Okiagari act 0x14.
+                               HP 0 is GT_KO act 0x18. Type 0x10 is not these grunts. */
+                            foe->mode = foe->hp > 0 ? 19 : 20;
+                            foe->frame = 0;
+                            foe->shown = 0;
+                            foe->timer = 0;
+                        } else if (foe->mode == 19) {
+                            foe->mode = 0;
+                            foe->frame = 0;
+                            foe->shown = 0;
+                            foe->cmd = 0;
+                            foe->vx = 0;
+                        } else if (foe->mode == 20) {
+                            foe->mode = 4;
+                            foe->alive = 0;
+                            note_ko(scene, foe);
+                        }
+                        foe->x = foe->x_fp >> 16;
+                        continue;
+                    }
+                    foe->frame++;
+                    foe->timer = scene->r8[sheet][phase][foe->frame].duration;
+                    if (foe->timer <= 0) foe->timer = 1;
+                }
+            }
+            foe->x = foe->x_fp >> 16;
+            foe->z = foe->z_fp >> 16;
             continue;
         }
         foe->vx = 0;
@@ -2120,6 +2231,18 @@ static int run_dump(Scene *scene, const char *path, int frames, int hold) {
         spawn_enemy(scene, 70, 56, 40, 2, 0, 0);
         hero.facing = 1;
     }
+    if (hold == 24) {
+        int f;
+        for (f = 0; f < scene->n_foes; f++) scene->foes[f].alive = 0;
+        spawn_enemy(scene, 50, 56, 40, 2, 0, 0);
+        hero.facing = 0;
+    }
+    if (hold == 25) {
+        int f;
+        for (f = 0; f < scene->n_foes; f++) scene->foes[f].alive = 0;
+        spawn_enemy(scene, 70, 56, 22, 2, 0, 0);
+        hero.facing = 1;
+    }
     if (hold == 23) {
         int f;
         for (f = 0; f < scene->n_foes; f++) scene->foes[f].alive = 0;
@@ -2167,6 +2290,8 @@ static int run_dump(Scene *scene, const char *path, int frames, int hold) {
         if (hold == 20 && (i == 0 || i >= 8)) right = 1;
         if (hold == 21 && i == 0) { up = 1; attack = 4; }
         if (hold == 22 && i == 0) { down = 1; attack = 4; }
+        if (hold == 24 && i == 0) { down = 1; attack = 4; }
+        if (hold == 25 && i == 0) { down = 1; attack = 4; }
         if (hold == 14 && (i == 43 || i == 132)) {
             int f;
             for (f = 0; f < scene->n_foes; f++) {
@@ -2192,7 +2317,8 @@ static int run_dump(Scene *scene, const char *path, int frames, int hold) {
            hero.act, hero.frame, hero.facing);
     printf("cam %d lock %d nf %d\n", scene->camera, scene->lock_i, scene->n_foes);
     if ((hold >= 5 && hold <= 9) || hold == 12 || hold == 13 || hold == 14 || hold == 15 ||
-        hold == 16 || hold == 17 || hold == 21 || hold == 22 || hold == 23) {
+        hold == 16 || hold == 17 || hold == 21 || hold == 22 || hold == 23 ||
+        hold == 24 || hold == 25) {
         printf("hp %d", hero.hp);
         for (i = 0; i < scene->n_foes; i++) printf(" %d", scene->foes[i].hp);
         printf(" x");
@@ -2236,6 +2362,8 @@ int main(int argc, char **argv) {
         if (argc > 5 && strcmp(argv[5], "dash") == 0) hold = 20;
         if (argc > 5 && strcmp(argv[5], "b7") == 0) hold = 21;
         if (argc > 5 && strcmp(argv[5], "b7d") == 0) hold = 22;
+        if (argc > 5 && strcmp(argv[5], "b7l") == 0) hold = 24;
+        if (argc > 5 && strcmp(argv[5], "b7k") == 0) hold = 25;
         if (argc > 5 && strcmp(argv[5], "entry") == 0) hold = 23;
         scene = load_scene(bin);
         if (!scene) {

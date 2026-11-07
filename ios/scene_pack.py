@@ -220,7 +220,7 @@ def build(blob: bytes, obm_zip: Path) -> tuple[bytes, dict]:
     payload += struct.pack(
         "<4sHHHiiiiiiiiiiHHHH",
         b"DD1S",
-        12,
+        13,
         480,
         320,
         info["pixel_w"],
@@ -385,6 +385,27 @@ def build(blob: bytes, obm_zip: Path) -> tuple[bytes, dict]:
     extra = (jump, land, kick, ckick, akick, s8b, s8w, s8o, s8l, s8m, dash, b48, b50)
     payload += struct.pack("<13H", *(len(g) for g in extra))
     for group in extra:
+        put_group(group)
+    # Reaction 8 defender: act 18 air, act 41 down, act 20 get-up, act 24 KO.
+    # One set per sheet: Bash, Williams, Bolo, Linda, Macho.
+    r8_sets = (
+        (zako_rects, zako_pat, zako_points, zako_img,
+         ((0xB2514, 0xB2534), (0xB29F8, 0xB2A18), (0xB256C, 0xB25B0), (0xB2638, 0xB267C))),
+        (zako_rects, zako_pat, zako_points, will_img,
+         ((0xB2514, 0xB2534), (0xB29F8, 0xB2A18), (0xB256C, 0xB25B0), (0xB2638, 0xB267C))),
+        (zako_rects, zako_pat, zako_points, bolo_img,
+         ((0xB2514, 0xB2534), (0xB29F8, 0xB2A18), (0xB256C, 0xB25B0), (0xB2638, 0xB267C))),
+        (linda_rects, linda_pat, linda_points, linda_img,
+         ((0xB34C8, 0xB34E8), (0xB39B8, 0xB39D8), (0xB3520, 0xB3564), (0xB35EC, 0xB360C))),
+        (macho_rects, macho_pat, macho_points, macho_img,
+         ((0xB5178, 0xB5198), (0xB564C, 0xB566C), (0xB51D0, 0xB522C), (0xB52B4, 0xB52D4))),
+    )
+    r8_groups = []
+    for rects, pat, points, img, spans in r8_sets:
+        for start, end in spans:
+            r8_groups.append(_frames(blob, sheets, names, rects, pat, points, img, start, end))
+    payload += struct.pack("<20H", *(len(g) for g in r8_groups))
+    for group in r8_groups:
         put_group(group)
     # ciJimmyAtkData records 3 (far kick), 4 (air kick) and 18 (close kick).
     for index in (3, 4, 18, 13, 14):

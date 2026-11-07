@@ -145,17 +145,51 @@ class SceneDumpTest(unittest.TestCase):
         self.assertIn("x 113 ", moved)
         self.assertIn("facing 1", moved)
 
-    def test_button7_up_is_reaction_five_and_down_only_damages(self):
+    def test_button7_up_is_reaction_five(self):
         # Act 50, record 14, damage 12. Enemy scale adds half: 40 becomes 22,
         # and reaction 5 is the same knockdown as a close kick.
         up = self.dump(8, "b7")
         self.assertIn("hp 100 40 30 22", up)
         self.assertIn("m 0 0 2", up)
-        # Act 48, record 13, damage 15, scales to 22. Reaction 8's defender
-        # act is not recovered, so the foe is not put into the knockdown.
-        down = self.dump(8, "b7d")
-        self.assertIn("hp 100 40 30 18", down)
-        self.assertIn("m 0 0 0", down)
+
+    def test_button7_down_is_reaction_eight(self):
+        # Fixture, not the route. Act 48's hit flag is not on the first
+        # frames, so frame 2 still has 40 HP. Frame 3 stores the launch.
+        # Record byte +0x0f is 3 and +0x10 is 1, so facing right keeps
+        # record 3's +131072 (2px) and facing left negates it.
+        windup = self.dump(2, "b7d")
+        launched = self.dump(3, "b7d")
+        right = self.dump(4, "b7d")
+        left = self.dump(4, "b7l")
+        self.assertIn("hp 100 40 30 40", windup)
+        self.assertIn("hp 100 40 30 18", launched)
+        self.assertIn("m 0 0 17", launched)
+        self.assertIn("x 500 500 72", right)
+        self.assertIn("x 500 500 48", left)
+
+    def test_reaction_eight_gets_up_when_hp_remains(self):
+        # Same fixture. Six MoveX ticks land in GT_Down (mode 18).
+        # Act 41 then GT_Okiagari (mode 19) and ReadySet. HP stays 18.
+        down = self.dump(9, "b7d")
+        rising = self.dump(40, "b7d")
+        ready = self.dump(45, "b7d")
+        self.assertIn("m 0 0 18", down)
+        self.assertIn("x 500 500 82", down)
+        self.assertIn("hp 100 40 30 18", rising)
+        self.assertIn("m 0 0 19", rising)
+        self.assertIn("m 0 0 0", ready)
+        self.assertIn("hp 100 40 30 18", ready)
+
+    def test_reaction_eight_kos_at_zero_hp(self):
+        # Fixture spawned at 22 HP, so the scaled 22 damage reaches 0.
+        # The body still launches and lies down, then GT_KO unlinks it.
+        air = self.dump(3, "b7k")
+        ko = self.dump(40, "b7k")
+        gone = self.dump(60, "b7k")
+        self.assertIn("hp 100 40 30 0", air)
+        self.assertIn("m 0 0 17", air)
+        self.assertIn("m 0 0 20", ko)
+        self.assertIn("m 0 0 4", gone)
 
     def test_wall_entry_ejects_to_the_cell_edge_then_walks_out(self):
         # First velocity tick is 76 to 74, still inside the format-0 row,

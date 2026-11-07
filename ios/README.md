@@ -43,7 +43,7 @@ A janela de golpe é `(flags & 0x28) == 8`. `HitRangeCheck` (`0xd6fc`) testa tr�
 
 `InitOptionData` grava 1 em `+0x76c` e `LoadOptionData_fromSaveArray` copia isso para `+0x24e2`. `InitSaveData` zera a palavra em `+0x24e0` antes. A palavra de dano `+0x2580` só é escrita em `ReadyCharSelectScreen` se `+0x2538` tiver o bit `0x800000` (grava 1) ou `0x200000` (copia o byte). Nenhum dos dois bits aparece no caminho do estágio 1, então `DamageCalcSub` fica no braço de dificuldade 0. Defensor com `+0x16d` negativo (o inimigo nasce com −1) soma a metade: 12 vira 18. O Jimmy nasce com o byte 0, então perde um quarto: o soco zako de 11 vira 9. A vida do Jimmy sai da tabela em `0xc54ac`, entradas 0 e 1 = 100.
 
-O registro 5 do Jimmy e o registro 6 do zako têm o byte `+0x11` = 5. `DamagedCheck` (`0xf074`) no caso 5 chama `GT_SetFukiMove` e, no chão, o ato 10; `GT_FukiDownDamage` (`0x32b90`), com a flag `0x400000` ainda limpa, troca para o ato 15. O ato 23 (inimigo) ou 42 (Jimmy) só entra com essa flag, e ela não é armada nesse caminho. `0x36a20` é `GT_BossKOCheck`: não escolhe pose. Ele liga bits em `+0x2538` e `task+0x44` quando `+0x48` tem `0x400` e a vida chegou a 0. Essa flag `0x400` não foi achada no spawn, então o KO de chefe não dispara. Com vida 0 o corpo fica na pose do ato 15.
+O byte `+0x11` desses socos é 5. `DamagedCheck` instala `GT_FukiUpDamage` (`0x32c60`). Enquanto a velocidade Y (`+0x70`) é ≤ 0 o corpo sobe com `GT_MoveY`. Quando passa de 0, o próprio `FukiUp` grava o proc `GT_FukiDownDamage` (`0x32b90`, o `add r2, pc` em `0x32ca8`) e o ato 12 se `+0x176` é 0. No chão, se `+0x44` tem `0x400000`, o ato é 23 para `+0x16d` < 0 e 42 para o Jimmy. O único `orr` que liga esse bit é `FloorAttrCause` (`0x128dc`): tipo de chão 1 soma `0x400200` e zera a vida. O registro 1 da rua (o byte do tile) tem tipo 0, então o bit não entra. A cena, com vida restante, toca mesmo assim o ato 23/42 depois que o hop de `GT_SetBoundMove` (`0xd68c`, Y −589824) volta ao chão; com vida 0 fica no ato 15 e não volta à IA. `0x36a20` continua sendo `GT_BossKOCheck` e não escolhe a pose.
 
 `ciDrawFlag` (`0x604d0`) troca 0↔1 quando `facing` é 1. A vista espelha o corpo nesse caso. O sombreador que consome a flag não foi aberto instrução por instrução.
 
@@ -68,13 +68,13 @@ make -C ios linux
 make -C ios windows
 ```
 
-`J` dispara o índice 4. `--dump quadro.ppm 240 watch` deixa os dois andarem: `hp 100 40 30 x 120 120`. `--dump quadro.ppm 180 fight` anda e soca quando o inimigo está à frente: `hp 82 22 12` (Jimmy 100−9−9, Williams 40−18, BASH 30−18).
+`J` dispara o índice 4. `--dump 240 watch` deixa os dois andarem: `hp 100 40 30 x 120 120`. `--dump 120 stand` soca e eles levantam (`m 0 0`, vidas 22 e 12). `--dump 320 stand` zera os dois e eles ficam caídos (`m 4 4`). `--dump 600 crowd` derruba o Jimmy (`hp 0`, `pm 4`) e ele não levanta.
 
-Nesta máquina o Wine 9 rodou o `scene_view.exe` de 64 bits (o aviso de `wine32` apareceu e não impediu):
+Nesta máquina o Wine 9 rodou o `scene_view.exe` de 64 bits (avisou `wine32` e seguiu):
 
-- `--dump 16 right` imprimiu `x 148 z 56 act 1 frame 4 facing 1`.
-- `--dump 240 watch` e `--dump 180 fight` imprimiram as mesmas linhas do binário Linux.
-- Sem `--dump`, a janela abriu no display `:1`. Em cerca de dois segundos os inimigos entraram sozinhos e um deles estava no soco. Escape fechou.
+- `--dump 320 stand` imprimiu `hp 64 0 0 ... m 4 4 pm 0`.
+- `--dump 600 crowd` imprimiu `hp 0 40 30 ... pm 4`.
+- Sem `--dump`, a janela abriu no display `:1`. Os inimigos entraram e um socou; depois do `J` eles se separaram. Escape fechou.
 
 ```bash
 PYTHONPATH=/workspace python3 -m unittest tests.test_ios_anim tests.test_scene_dump -v

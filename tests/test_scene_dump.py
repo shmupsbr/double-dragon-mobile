@@ -36,9 +36,21 @@ class SceneDumpTest(unittest.TestCase):
         text = self.dump(240, "watch")
         self.assertIn("hp 100 40 30 x 120 120", text)
 
-    def test_trade_uses_both_damage_arms(self):
-        text = self.dump(180, "fight")
-        self.assertIn("hp 82 22 12", text)
+    def test_hit_enemy_gets_back_up(self):
+        text = self.dump(120, "stand")
+        self.assertIn("hp 91 22 12", text)
+        self.assertIn("m 0 0", text)
+
+    def test_zero_hp_stays_down(self):
+        text = self.dump(320, "stand")
+        self.assertIn("hp 64 0 0", text)
+        self.assertIn("m 4 4", text)
+        self.assertIn("pm 0", text)
+
+    def test_player_loss_stays_down(self):
+        text = self.dump(600, "crowd")
+        self.assertIn("hp 0 40 30", text)
+        self.assertIn("pm 4", text)
 
     def test_up_changes_depth_and_keeps_idle(self):
         self.assertEqual(self.dump(4, "up"), "x 60 z 72 act 0 frame 2 facing 1")

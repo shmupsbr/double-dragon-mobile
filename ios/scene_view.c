@@ -31,7 +31,7 @@ typedef struct {
 typedef struct {
     int x, z, hp, alive, sheet, frame, timer, shown, hit;
     int facing, mode, cmd;
-    int x_fp, z_fp, vx, vz;
+    int x_fp, z_fp, y_fp, vx, vz, yv, ya;
 } Foe;
 
 typedef struct {
@@ -42,6 +42,7 @@ typedef struct {
     int cx, cy, cw, ch, cz, czs, dmg45;
     int hx, hy, hw, hh, hz, hzs, grab_x, grab_z;
     int n_zwb, n_zww, n_zpb, n_zpw, n_zdb, n_jd, n_zdw, n_zlb, n_zlw, n_jl;
+    int n_zfb, n_zfw, n_zgb, n_zgw, n_jf, n_jg;
     int zvx, zvz, hero_hp;
     int zx, zy, zw, zh, zz, zzs, zdmg;
     int32_t *ground;
@@ -64,6 +65,12 @@ typedef struct {
     Frame *zlb;
     Frame *zlw;
     Frame *jl;
+    Frame *zfb;
+    Frame *zfw;
+    Frame *zgb;
+    Frame *zgw;
+    Frame *jf;
+    Frame *jg;
     Foe foes[4];
 } Scene;
 
@@ -139,7 +146,7 @@ static Scene *load_scene(const char *path) {
     if (!fp) return NULL;
     scene = calloc(1, sizeof(Scene));
     if (!scene || !rd(fp, magic, 4) || memcmp(magic, "DD1S", 4) != 0) goto fail;
-    if (!ru16(fp, &version) || version != 3) goto fail;
+    if (!ru16(fp, &version) || version != 4) goto fail;
     if (!ru16(fp, &vw) || !ru16(fp, &vh)) goto fail;
     if (!ri32(fp, &scene->map_w) || !ri32(fp, &scene->map_h)) goto fail;
     if (!ri32(fp, &scene->spawn_x) || !ri32(fp, &scene->spawn_z)) goto fail;
@@ -170,6 +177,7 @@ static Scene *load_scene(const char *path) {
         scene->foes[vw].alive = 1;
         scene->foes[vw].x_fp = scene->foes[vw].x << 16;
         scene->foes[vw].z_fp = scene->foes[vw].z << 16;
+        scene->foes[vw].y_fp = 0xEF << 16;
     }
     if (!ru16(fp, &scene->n_zwb) || !ru16(fp, &scene->n_zww) || !ru16(fp, &scene->n_zpb) ||
         !ru16(fp, &scene->n_zpw) || !ru16(fp, &scene->n_zdb) || !ru16(fp, &scene->n_jd))
@@ -181,6 +189,9 @@ static Scene *load_scene(const char *path) {
         goto fail;
     if (!ru16(fp, &scene->n_zdw) || !ru16(fp, &scene->n_zlb) || !ru16(fp, &scene->n_zlw) ||
         !ru16(fp, &scene->n_jl))
+        goto fail;
+    if (!ru16(fp, &scene->n_zfb) || !ru16(fp, &scene->n_zfw) || !ru16(fp, &scene->n_zgb) ||
+        !ru16(fp, &scene->n_zgw) || !ru16(fp, &scene->n_jf) || !ru16(fp, &scene->n_jg))
         goto fail;
     ground_n = (size_t)scene->floor_w * scene->floor_h;
     scene->ground = malloc(ground_n * 4);
@@ -207,9 +218,16 @@ static Scene *load_scene(const char *path) {
     scene->zlb = load_frames(fp, scene->n_zlb);
     scene->zlw = load_frames(fp, scene->n_zlw);
     scene->jl = load_frames(fp, scene->n_jl);
+    scene->zfb = load_frames(fp, scene->n_zfb);
+    scene->zfw = load_frames(fp, scene->n_zfw);
+    scene->zgb = load_frames(fp, scene->n_zgb);
+    scene->zgw = load_frames(fp, scene->n_zgw);
+    scene->jf = load_frames(fp, scene->n_jf);
+    scene->jg = load_frames(fp, scene->n_jg);
     if (!scene->idle || !scene->walk || !scene->bash || !scene->will || !scene->p28 || !scene->p29 ||
         !scene->p45 || !scene->zwb || !scene->zww || !scene->zpb || !scene->zpw || !scene->zdb ||
-        !scene->zdw || !scene->jd || !scene->zlb || !scene->zlw || !scene->jl)
+        !scene->zdw || !scene->jd || !scene->zlb || !scene->zlw || !scene->jl || !scene->zfb ||
+        !scene->zfw || !scene->zgb || !scene->zgw || !scene->jf || !scene->jg)
         goto fail;
     fclose(fp);
     return scene;
@@ -271,6 +289,7 @@ static int ground_at(const Scene *scene, int x, int z) {
 typedef struct {
     int x_fp, z_fp, vx, vz, facing, act, frame, timer, shown;
     int punch_act, alt, hp, mode;
+    int y_fp, yv, ya;
 } Body;
 
 static void restart(Body *body, int act) {
@@ -330,13 +349,20 @@ static void strike(Scene *scene, Body *body, const Frame *pose) {
         foe->timer = 0;
         foe->shown = 0;
         foe->cmd = 0;
+        foe->y_fp = 0xEF << 16;
+        /* ciFukiData record 1: Jimmy record 5 byte +0x0f is 1. */
+        foe->vx = px > foe->x ? 196608 : -196608;
+        foe->yv = -1376256;
+        foe->ya = 212992;
         if (foe->hp <= 0) foe->hp = 0;
     }
 }
 
 static Frame *hero_pose(const Scene *scene, const Body *body) {
     if (body->mode == 2 && scene->n_jd) return &scene->jd[body->frame % scene->n_jd];
+    if (body->mode == 5 && scene->n_jf) return &scene->jf[body->frame % scene->n_jf];
     if (body->mode == 3 && scene->n_jl) return &scene->jl[body->frame % scene->n_jl];
+    if (body->mode == 6 && scene->n_jg) return &scene->jg[body->frame % scene->n_jg];
     if (body->mode == 4 && scene->n_jl) return &scene->jl[scene->n_jl - 1];
     if (body->punch_act == 28) return &scene->p28[body->frame];
     if (body->punch_act == 29) return &scene->p29[body->frame];
@@ -396,7 +422,17 @@ static const Frame *foe_pose(const Scene *scene, const Foe *foe) {
     if (foe->mode == 4) {
         const Frame *land = sheet ? scene->zlw : scene->zlb;
         int n = sheet ? scene->n_zlw : scene->n_zlb;
-        return &land[n - 1];
+        return &land[n > 0 ? n - 1 : 0];
+    }
+    if (foe->mode == 6) {
+        const Frame *up = sheet ? scene->zgw : scene->zgb;
+        int n = sheet ? scene->n_zgw : scene->n_zgb;
+        return &up[foe->frame % n];
+    }
+    if (foe->mode == 5) {
+        const Frame *fall = sheet ? scene->zfw : scene->zfb;
+        int n = sheet ? scene->n_zfw : scene->n_zfb;
+        return &fall[foe->frame % n];
     }
     if (foe->mode == 3) {
         const Frame *land = sheet ? scene->zlw : scene->zlb;
@@ -425,6 +461,8 @@ static const Frame *foe_pose(const Scene *scene, const Foe *foe) {
 
 static int foe_count(const Scene *scene, const Foe *foe) {
     int sheet = foe->sheet;
+    if (foe->mode == 6) return sheet ? scene->n_zgw : scene->n_zgb;
+    if (foe->mode == 5) return sheet ? scene->n_zfw : scene->n_zfb;
     if (foe->mode == 3) return sheet ? scene->n_zlw : scene->n_zlb;
     if (foe->mode == 2) return sheet ? scene->n_zdw : scene->n_zdb;
     if (foe->mode == 1) return sheet ? scene->n_zpw : scene->n_zpb;
@@ -441,7 +479,11 @@ static void hurt_hero(Scene *scene, Body *hero, int attacker_x) {
     hero->timer = 0;
     hero->shown = 0;
     hero->punch_act = 0;
+    hero->y_fp = 0xEF << 16;
+    /* ciFukiData record 0: zako attack byte +0x0f is 0. X -327680, Y -1048576, accel 212992. */
     hero->vx = attacker_x > (hero->x_fp >> 16) ? -327680 : 327680;
+    hero->yv = -1048576;
+    hero->ya = 212992;
     hero->vz = 0;
 }
 
@@ -482,35 +524,63 @@ static void step_foes(Scene *scene, Body *hero) {
         if (!foe->alive || foe->mode == 4) continue;
         foe->vx = 0;
         foe->vz = 0;
-        if (foe->mode == 2 || foe->mode == 3) {
+        if (foe->mode >= 2) {
+            /* GT_FukiUpDamage while vy <= 0, then GT_FukiDownDamage.
+               Street floor type is 0, so FloorAttrCause does not OR 0x400200.
+               After the bound hop lands, HP left plays the get-up act that
+               branch names (0x17). HP 0 stays down and does not resume AI. */
+            advance_clip(&foe->x_fp, foe->vx, scene->map_w - 1);
+            if (foe->mode == 2 || foe->mode == 5 || foe->mode == 3) {
+                foe->y_fp += foe->yv;
+                foe->yv += foe->ya;
+                if (foe->mode == 2 && foe->yv > 0) {
+                    foe->mode = 5;
+                    foe->frame = 0;
+                    foe->shown = 0;
+                    foe->timer = 0;
+                } else if (foe->y_fp >= (0xEF << 16)) {
+                    foe->y_fp = 0xEF << 16;
+                    if (foe->mode == 5) {
+                        foe->mode = 3;
+                        foe->yv = -589824;
+                        foe->ya = 229376;
+                        foe->frame = 0;
+                        foe->shown = 0;
+                        foe->timer = 0;
+                    } else if (foe->mode == 3 && foe->yv >= 0) {
+                        foe->yv = 0;
+                        foe->ya = 0;
+                        foe->vx = 0;
+                        foe->mode = foe->hp > 0 ? 6 : 4;
+                        foe->frame = 0;
+                        foe->shown = 0;
+                        foe->timer = 0;
+                    }
+                }
+            }
+            if (foe->mode == 4) {
+                foe->x = foe->x_fp >> 16;
+                continue;
+            }
             n = foe_count(scene, foe);
+            if (foe->mode == 6 && n > 0 && foe->shown && foe->timer <= 1 && foe->frame + 1 >= n) {
+                foe->mode = 0;
+                foe->frame = 0;
+                foe->shown = 0;
+                foe->cmd = 0;
+                foe->x = foe->x_fp >> 16;
+                continue;
+            }
             if (!foe->shown) {
                 foe->timer = foe_pose(scene, foe)->duration;
                 foe->shown = 1;
             } else {
                 foe->timer -= 1;
-                if (foe->timer <= 0) {
-                    foe->frame += 1;
-                    if (foe->frame >= n) {
-                        if (foe->mode == 2) {
-                            foe->mode = 3;
-                            foe->frame = 0;
-                            foe->shown = 0;
-                        } else if (foe->hp <= 0) {
-                            foe->mode = 4;
-                            foe->frame = n - 1;
-                        } else {
-                            foe->mode = 0;
-                            foe->frame = 0;
-                            foe->shown = 0;
-                            foe->cmd = 0;
-                        }
-                    } else {
-                        foe->timer = foe_pose(scene, foe)->duration;
-                    }
+                if (foe->timer <= 0 && n > 0) {
+                    foe->frame = (foe->frame + 1) % n;
+                    foe->timer = foe_pose(scene, foe)->duration;
                 }
             }
-            advance_clip(&foe->x_fp, foe->mode == 2 ? (foe->facing ? 196608 : -196608) : 0, scene->map_w - 1);
             foe->x = foe->x_fp >> 16;
             continue;
         }
@@ -592,33 +662,58 @@ static void step_body(Scene *scene, Body *body, int left, int right, int up, int
     int i;
     step_foes(scene, body);
     if (body->mode == 4) return;
-    if (body->mode == 2 || body->mode == 3) {
-        int n = body->mode == 2 ? scene->n_jd : scene->n_jl;
-        Frame *pose = body->mode == 2 ? &scene->jd[body->frame] : &scene->jl[body->frame];
-        if (!body->shown) {
-            body->timer = pose->duration;
-            body->shown = 1;
-        } else {
-            body->timer -= 1;
-            if (body->timer <= 0) {
-                body->frame += 1;
-                if (body->frame >= n) {
-                    if (body->mode == 2) {
-                        body->mode = 3;
-                        body->frame = 0;
-                        body->shown = 0;
-                    } else if (body->hp <= 0) {
-                        body->mode = 4;
-                    } else {
-                        body->mode = 0;
-                        restart(body, 0);
-                    }
-                } else {
-                    body->timer = (body->mode == 2 ? scene->jd : scene->jl)[body->frame].duration;
+    if (body->mode >= 2) {
+        int n = 1;
+        body->x_fp += body->vx;
+        if (body->mode == 2 || body->mode == 5 || body->mode == 3) {
+            body->y_fp += body->yv;
+            body->yv += body->ya;
+            if (body->mode == 2 && body->yv > 0) {
+                body->mode = 5;
+                body->frame = 0;
+                body->shown = 0;
+                body->timer = 0;
+            } else if (body->y_fp >= (0xEF << 16)) {
+                body->y_fp = 0xEF << 16;
+                if (body->mode == 5) {
+                    body->mode = 3;
+                    body->yv = -589824;
+                    body->ya = 229376;
+                    body->frame = 0;
+                    body->shown = 0;
+                    body->timer = 0;
+                } else if (body->mode == 3 && body->yv >= 0) {
+                    body->yv = 0;
+                    body->ya = 0;
+                    body->vx = 0;
+                    body->mode = body->hp > 0 ? 6 : 4;
+                    body->frame = 0;
+                    body->shown = 0;
+                    body->timer = 0;
                 }
             }
         }
-        if (body->mode == 2) body->x_fp += body->vx;
+        if (body->mode == 2) n = scene->n_jd;
+        else if (body->mode == 5) n = scene->n_jf;
+        else if (body->mode == 3) n = scene->n_jl;
+        else if (body->mode == 6) n = scene->n_jg;
+        if (body->mode == 6 && n > 0 && body->shown && body->timer <= 1 && body->frame + 1 >= n) {
+            body->mode = 0;
+            restart(body, 0);
+            return;
+        }
+        if (body->mode != 4 && n > 0) {
+            if (!body->shown) {
+                body->timer = 1;
+                body->shown = 1;
+            } else {
+                body->timer -= 1;
+                if (body->timer <= 0) {
+                    body->frame = (body->frame + 1) % n;
+                    body->timer = 1;
+                }
+            }
+        }
         return;
     }
     if (attack && body->punch_act == 0) {
@@ -761,7 +856,7 @@ static void paint(const Scene *scene, const Body *hero, uint8_t *fb) {
                 ground = ground_at(scene, hero->x_fp >> 16, hero->z_fp >> 16);
                 if (ground < -10000) ground = 0xEF;
                 sx = (hero->x_fp >> 16) - camera;
-                sy = ground - (hero->z_fp >> 16);
+                sy = ((hero->y_fp ? hero->y_fp : (0xEF << 16)) >> 16) - (hero->z_fp >> 16);
                 blit(fb, VIEW_W, VIEW_H, pose->px, pose->w, pose->h, sx - pose->ox, sy - pose->oy,
                      hero->facing == 1);
             } else {
@@ -770,7 +865,7 @@ static void paint(const Scene *scene, const Body *hero, uint8_t *fb) {
                 ground = ground_at(scene, foe->x, foe->z);
                 if (ground < -10000) ground = 0xEF;
                 sx = foe->x - camera;
-                sy = ground - foe->z;
+                sy = (foe->y_fp >> 16) - foe->z;
                 blit(fb, VIEW_W, VIEW_H, fr->px, fr->w, fr->h, sx - fr->ox, sy - fr->oy, foe->facing == 1);
             }
         }
@@ -974,6 +1069,30 @@ static int run_dump(Scene *scene, const char *path, int frames, int hold) {
     for (i = 0; i < frames; i++) {
         int left = hold == 1, right = hold == 2 || hold == 5 || hold == 7, up = hold == 3, down = hold == 4;
         int attack = 0;
+        if (hold == 9 && hero.mode == 0) {
+            int f, close = 0;
+            for (f = 0; f < scene->n_foes; f++) {
+                int d = scene->foes[f].x - (hero.x_fp >> 16);
+                if (scene->foes[f].mode != 4 && d > -30 && d < 30) close = 1;
+            }
+            if (!close) right = 1;
+        }
+        if (hold == 8 && hero.mode == 0) {
+            int f, best = 100000, gap = 0;
+            for (f = 0; f < scene->n_foes; f++) {
+                int d;
+                if (!scene->foes[f].alive || scene->foes[f].mode == 4) continue;
+                d = scene->foes[f].x - (hero.x_fp >> 16);
+                if (d < 0) d = -d;
+                if (d < best) {
+                    best = d;
+                    gap = scene->foes[f].x - (hero.x_fp >> 16);
+                }
+            }
+            if (gap > 36) right = 1;
+            if (gap < -36) left = 1;
+            if (best < 70 && hero.punch_act == 0) attack = 1;
+        }
         if (hold == 5 && !fired && (hero.x_fp >> 16) >= 430) {
             attack = 1;
             fired = 1;
@@ -982,7 +1101,7 @@ static int run_dump(Scene *scene, const char *path, int frames, int hold) {
             int f;
             for (f = 0; f < scene->n_foes; f++) {
                 int gap = scene->foes[f].x - (hero.x_fp >> 16);
-                if (scene->foes[f].mode < 2 && gap > 20 && gap < 80) attack = 1;
+                if (scene->foes[f].alive && scene->foes[f].mode < 2 && gap > 30 && gap < 100) attack = 1;
             }
         }
         step_body(scene, &hero, left, right, up, down, attack);
@@ -991,12 +1110,14 @@ static int run_dump(Scene *scene, const char *path, int frames, int hold) {
     if (!write_ppm(path, fb)) return 1;
     printf("x %d z %d act %d frame %d facing %d\n", hero.x_fp >> 16, hero.z_fp >> 16,
            hero.act, hero.frame, hero.facing);
-    if (hold == 5 || hold == 6 || hold == 7) {
+    if (hold >= 5 && hold <= 9) {
         printf("hp %d", hero.hp);
         for (i = 0; i < scene->n_foes; i++) printf(" %d", scene->foes[i].hp);
         printf(" x");
         for (i = 0; i < scene->n_foes; i++) printf(" %d", scene->foes[i].x);
-        printf("\n");
+        printf(" m");
+        for (i = 0; i < scene->n_foes; i++) printf(" %d", scene->foes[i].mode);
+        printf(" pm %d\n", hero.mode);
     }
     return 0;
 }
@@ -1014,6 +1135,8 @@ int main(int argc, char **argv) {
         if (argc > 5 && strcmp(argv[5], "meet") == 0) hold = 5;
         if (argc > 5 && strcmp(argv[5], "watch") == 0) hold = 6;
         if (argc > 5 && strcmp(argv[5], "fight") == 0) hold = 7;
+        if (argc > 5 && strcmp(argv[5], "stand") == 0) hold = 8;
+        if (argc > 5 && strcmp(argv[5], "crowd") == 0) hold = 9;
         scene = load_scene(bin);
         if (!scene) {
             fprintf(stderr, "could not read %s\n", bin);

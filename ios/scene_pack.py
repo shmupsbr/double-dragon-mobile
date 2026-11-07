@@ -155,7 +155,13 @@ def build(blob: bytes, obm_zip: Path) -> tuple[bytes, dict]:
     zdown_b = _frames(blob, sheets, names, zako_rects, zako_pat, zako_points, zako_img, ZAKO_C00_ACT10, 0xB2410)
     zdown_w = _frames(blob, sheets, names, zako_rects, zako_pat, zako_points, will_img, ZAKO_C00_ACT10, 0xB2410)
     zland_b = _frames(blob, sheets, names, zako_rects, zako_pat, zako_points, zako_img, ZAKO_C00_ACT15, 0xB24DC)
-    zland_w = _frames(blob, sheets, names, zako_rects, zako_pat, zako_points, will_img, ZAKO_C00_ACT15, 0xB24DC)
+    zland_w = _frames(blob, sheets, names, zako_rects, zako_pat, zako_points, will_img, ZAKO_C00_ACT15, 0xB24BC)
+    zfall_b = _frames(blob, sheets, names, zako_rects, zako_pat, zako_points, zako_img, 0xB2430, 0xB2450)
+    zfall_w = _frames(blob, sheets, names, zako_rects, zako_pat, zako_points, will_img, 0xB2430, 0xB2450)
+    zget_b = _frames(blob, sheets, names, zako_rects, zako_pat, zako_points, zako_img, 0xB2618, 0xB2638)
+    zget_w = _frames(blob, sheets, names, zako_rects, zako_pat, zako_points, will_img, 0xB2618, 0xB2638)
+    jfall = _frames(blob, sheets, names, jimmy_rects, jimmy_pat, jimmy_points, jimmy_img, 0xAA2BC, 0xAA2FC)
+    jget = _frames(blob, sheets, names, jimmy_rects, jimmy_pat, jimmy_points, jimmy_img, 0xAA9E8, 0xAAA9C)
     wave = first_wave(blob)
     zatk = zako_attack_record(blob, 6)
     zvx, zvz = zako_move(blob)
@@ -176,7 +182,7 @@ def build(blob: bytes, obm_zip: Path) -> tuple[bytes, dict]:
     payload += struct.pack(
         "<4sHHHiiiiiiiiiiHHHH",
         b"DD1S",
-        3,
+        4,
         480,
         320,
         info["pixel_w"],
@@ -210,6 +216,9 @@ def build(blob: bytes, obm_zip: Path) -> tuple[bytes, dict]:
         zatk[0], zatk[1], zatk[2], zatk[3], zatk[4], zatk[5], zatk[6],
     )
     payload += struct.pack("<4H", len(zdown_w), len(zland_b), len(zland_w), len(jland))
+    payload += struct.pack(
+        "<6H", len(zfall_b), len(zfall_w), len(zget_b), len(zget_w), len(jfall), len(jget)
+    )
     payload += struct.pack(f"<{len(ground)}i", *ground)
 
     def put_image(image: Image.Image) -> None:
@@ -225,6 +234,7 @@ def build(blob: bytes, obm_zip: Path) -> tuple[bytes, dict]:
     for group in (
         idle, walk, bash, will, punch28, punch29, punch45,
         zwalk_b, zwalk_w, zpunch_b, zpunch_w, zdown_b, zdown_w, jdown, zland_b, zland_w, jland,
+        zfall_b, zfall_w, zget_b, zget_w, jfall, jget,
     ):
         put_group(group)
     meta = {

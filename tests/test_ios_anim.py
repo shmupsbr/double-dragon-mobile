@@ -271,9 +271,26 @@ class IosAnimTest(unittest.TestCase):
         self.assertEqual(char_def(self.blob, 31), (17, 19, 50))
         self.assertEqual(char_def(self.blob, 6), (4, 6, 30))
         self.assertEqual(char_def(self.blob, 40), (24, 26, 200))
+        self.assertEqual(char_def(self.blob, 42), (26, 28, 230))
         self.assertIn((5, 3, 19, 99), rows)
         self.assertIn((99, 10, 30, 100), rows)
         self.assertIn((100, 7, 0, 0), rows)
+
+    def test_stage1_boss_is_not_the_abobo_load_record(self):
+        # csPlayerCharLoadData: field 0 is the task type, field 1 the draw
+        # set, field 2 a resource-name index. ABOBO.obm is type 26 / draw 28,
+        # which is enemy-table char 42. Stage-1 enemy 19 is char 40.
+        from ios.macho_anim import player_char, read_i32, ENC_ENEMY, resource_name
+        abobo = None
+        for i in range(48):
+            rec = player_char(self.blob, i)
+            self.assertFalse(rec[0] == 24 or rec[1] == 26)
+            if rec[2] == 41:
+                abobo = rec
+        self.assertEqual(abobo[:3], (26, 28, 41))
+        self.assertEqual(resource_name(self.blob, 41), "ABOBO.obm")
+        entry = read_i32(self.blob, ENC_ENEMY + 19 * 24, 6)[4]
+        self.assertEqual(entry, 6)
 
     def test_bash_act_uses_its_own_patterns(self):
         frames, opcode = act_span(self.blob, ZAKO_C00_ACT0, ZAKO_C00_ACT0 + 0x5C)

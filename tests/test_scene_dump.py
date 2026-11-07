@@ -233,8 +233,10 @@ class SceneDumpTest(unittest.TestCase):
         armed = self.dump(1, "s1055")
         fired = self.dump(101, "s1055")
         self.assertIn("us -1", armed)
+        self.assertIn("ch -1", armed)
         self.assertIn("sc 0", armed)
         self.assertIn("us 19", fired)
+        self.assertIn("ch 40", fired)
         self.assertIn("sc 0", fired)
 
     def test_boss_ko_key_sets_the_clear_bit(self):

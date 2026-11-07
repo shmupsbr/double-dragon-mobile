@@ -130,7 +130,7 @@ typedef struct {
     Frame *r8[5][4];
     int n_rows, row_i, trigger;
     int rows[28][8];
-    int camera, lock_i, quota, phase, stage_clear, unspawned;
+    int camera, lock_i, quota, phase, stage_clear, unspawned, boss_char;
     int n_keys;
     int keys[48][4];
     int edict[20][8];
@@ -424,6 +424,7 @@ static Scene *load_scene(const char *path) {
         goto fail;
     scene->trigger = -1;
     scene->unspawned = -1;
+    scene->boss_char = -1;
     if (!scene->idle || !scene->walk || !scene->bash || !scene->will || !scene->p28 || !scene->p29 ||
         !scene->p45 || !scene->zwb || !scene->zww || !scene->zpb || !scene->zpw || !scene->zdb ||
         !scene->zdw || !scene->jd || !scene->zlb || !scene->zlw || !scene->jl || !scene->zfb ||
@@ -939,9 +940,10 @@ static void apply_key(Scene *scene, int key) {
             scene->phase = param;
         } else if (kind == 3 && param >= 0 && param < 20) {
             if (scene->edict[param][3] < 0) {
-                /* Char 40 is draw 26. That slot is not in the sheet map, so
-                   he is not replaced with another body. */
+                /* Enemy 19 is char 40: type 24, draw 26. The ABOBO.obm load
+                   record is type 26, draw 28 (char 42). No sheet is substituted. */
                 scene->unspawned = param;
+                scene->boss_char = scene->edict[param][6];
             } else {
                 spawn_enemy(scene, scene->edict[param][0], scene->edict[param][1],
                             scene->edict[param][2], scene->edict[param][3],
@@ -2501,9 +2503,9 @@ static int run_dump(Scene *scene, const char *path, int frames, int hold) {
         for (i = 0; i < scene->n_foes; i++) printf(" %d", scene->foes[i].x);
         printf(" m");
         for (i = 0; i < scene->n_foes; i++) printf(" %d", scene->foes[i].mode);
-        printf(" pm %d y %d cam %d lock %d nf %d ph %d q %d sc %d us %d\n", hero.mode, hero.y_fp >> 16,
+        printf(" pm %d y %d cam %d lock %d nf %d ph %d q %d sc %d us %d ch %d\n", hero.mode, hero.y_fp >> 16,
                scene->camera, scene->lock_i, scene->n_foes, scene->phase, scene->quota,
-               scene->stage_clear, scene->unspawned);
+               scene->stage_clear, scene->unspawned, scene->boss_char);
         if (hold == 23) {
             printf("fz");
             for (i = 0; i < scene->n_foes; i++) printf(" %d", scene->foes[i].z);

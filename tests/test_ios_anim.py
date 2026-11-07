@@ -17,7 +17,12 @@ from ios.macho_anim import (
     compose_box,
     draw_flags,
     encryption,
+    ENC_LIST,
+    char_def,
     first_wave,
+    floor_bytes,
+    scroll_enemies,
+    va_to_offset,
     floor_ground,
     hero_hp,
     hurt_record,
@@ -152,7 +157,7 @@ class IosAnimTest(unittest.TestCase):
     def test_first_wave_is_not_a_placed_prop(self):
         wave = first_wave(self.blob)
         self.assertEqual(len(wave), 2)
-        # enemy def 0 -> char 12, Williams draw set, right of the 480-wide view
+        # enemy def 0 -> char 12, draw set 8, right of the 480-wide view
         self.assertEqual(wave[0][0], 0)
         self.assertEqual(wave[0][1], 12)
         self.assertEqual(wave[0][2], 500)
@@ -172,6 +177,47 @@ class IosAnimTest(unittest.TestCase):
         self.assertEqual(record[-1], 5)
         self.assertEqual(hero_hp(self.blob, 0), 100)
         self.assertEqual(hero_hp(self.blob, 1), 100)
+
+    def test_draw_slots_are_bash_williams_bolo(self):
+        import struct
+        names = {6: "BASH.obm", 7: "WILLIAMS.obm", 8: "BOLO.obm"}
+        # The installer ldr.w immediates are the low 12 bits. Pool base clears bits [1:0] of addr+4.
+        for draw, ldr in ((6, 0x100C8), (7, 0x100EA), (8, 0x1010C)):
+            raw = self.blob[va_to_offset(ldr) : va_to_offset(ldr) + 4]
+            imm = struct.unpack_from("<H", raw, 2)[0] & 0xFFF
+            pool = ((ldr + 4) & ~3) + imm
+            addend = struct.unpack_from("<i", self.blob, va_to_offset(pool))[0]
+            slot = (ldr + 8) + addend
+            img = struct.unpack_from("<I", self.blob, va_to_offset(slot))[0]
+            self.assertEqual(resource_name(self.blob, struct.unpack_from("<H", self.blob, va_to_offset(img))[0]), names[draw])
+        self.assertEqual(char_def(self.blob, 4)[1], 6)
+        self.assertEqual(char_def(self.blob, 8)[1], 7)
+        self.assertEqual(char_def(self.blob, 12)[1], 8)
+
+    def test_building_row_is_the_tall_floor_record(self):
+        tiles, fmt5 = floor_bytes(self.blob)
+        info = stage1_map(self.blob)
+        def tile(x, z):
+            return tiles[info["floor_w"] * ((z >> 4) + 1) + info["origin_x"] + (x >> 4)]
+        self.assertEqual(tile(60, 63), 1)
+        self.assertEqual(tile(60, 64), 0)
+        self.assertEqual(floor_ground(self.blob, 60, 63), 0xEF)
+        self.assertLess(floor_ground(self.blob, 60, 64), 0)
+        self.assertIn(0, fmt5)
+        self.assertIn(1, fmt5)
+
+    def test_scroll_100_is_the_next_kind3_row(self):
+        import struct
+        raw = self.blob[va_to_offset(ENC_LIST) : va_to_offset(ENC_LIST) + 16 * 12]
+        rows = [struct.unpack_from("<4i", raw, i * 16) for i in range(12)]
+        self.assertEqual(rows[6][:3], (0, 0, 2))
+        self.assertEqual(rows[9][:3], (100, 5, -1))
+        wave = scroll_enemies(self.blob, 100)
+        self.assertEqual([(e[1], e[2], e[3], e[4], e[5]) for e in wave], [
+            (8, 612, 56, 40, 7),
+            (8, 656, 32, 40, 7),
+            (4, 612, 8, 30, 6),
+        ])
 
     def test_bash_act_uses_its_own_patterns(self):
         frames, opcode = act_span(self.blob, ZAKO_C00_ACT0, ZAKO_C00_ACT0 + 0x5C)

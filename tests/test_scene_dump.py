@@ -26,11 +26,25 @@ class SceneDumpTest(unittest.TestCase):
         return result.stdout.strip()
 
     def test_idle_stays_at_the_spawn(self):
-        self.assertEqual(self.dump(8, "none"), "x 60 z 56 act 0 frame 4 facing 1")
+        lines = self.dump(8, "none").splitlines()
+        self.assertEqual(lines[0], "x 60 z 56 act 0 frame 4 facing 1")
+        self.assertEqual(lines[1], "cam 0 lock 0 nf 2")
 
     def test_right_uses_the_recovered_speed(self):
         # 16 frames * 360448 / 65536 = 88, and 60 + 88 = 148.
-        self.assertEqual(self.dump(16, "right"), "x 148 z 56 act 1 frame 4 facing 1")
+        lines = self.dump(16, "right").splitlines()
+        self.assertEqual(lines[0], "x 148 z 56 act 1 frame 4 facing 1")
+        self.assertEqual(lines[1], "cam 0 lock 0 nf 2")
+
+    def test_locked_camera_stays_while_the_wave_is_alive(self):
+        lines = self.dump(80, "right").splitlines()
+        self.assertEqual(lines[0], "x 278 z 56 act 1 frame 4 facing 1")
+        self.assertEqual(lines[1], "cam 0 lock 0 nf 2")
+
+    def test_up_stops_on_the_building_row(self):
+        lines = self.dump(4, "up").splitlines()
+        self.assertEqual(lines[0], "x 60 z 63 act 0 frame 2 facing 1")
+        self.assertEqual(self.dump(40, "up").splitlines()[0], "x 60 z 63 act 0 frame 4 facing 1")
 
     def test_enemies_walk_in_and_stop_at_the_move_threshold(self):
         text = self.dump(240, "watch")
@@ -46,21 +60,28 @@ class SceneDumpTest(unittest.TestCase):
         self.assertIn("hp 73 22 12", text)
         self.assertIn("m 0 0", text)
 
-    def test_zero_hp_is_unlinked_and_stays_unlinked(self):
-        gone = self.dump(500, "stand")
-        later = self.dump(700, "stand")
-        self.assertIn("hp 37 0 0", gone)
-        self.assertIn("m 4 4", gone)
-        self.assertIn("m 4 4", later)
+    def test_unlinking_the_wave_releases_the_camera(self):
+        held = self.dump(480, "stand")
+        moving = self.dump(485, "stand")
+        self.assertIn("nf 2", held)
+        self.assertIn("cam 0 lock 0", held)
+        self.assertIn("m 4 4", moving)
+        self.assertIn("lock 1", moving)
+        self.assertIn("cam 36", moving)
+        self.assertIn("nf 2", moving)
+
+    def test_next_row_waits_for_camera_100(self):
+        before = self.dump(490, "stand")
+        spawned = self.dump(492, "stand")
+        self.assertIn("cam 96 lock 1 nf 2", before)
+        self.assertIn("hp 37 0 0 40 40 30", spawned)
+        self.assertIn("x 344 376 612 656 612", spawned)
+        self.assertIn("cam 120 lock 2 nf 5", spawned)
 
     def test_player_loss_stays_down(self):
         text = self.dump(700, "crowd")
         self.assertIn("hp 0 40 30", text)
         self.assertIn("pm 4", text)
-
-    def test_up_changes_depth_and_keeps_idle(self):
-        self.assertEqual(self.dump(4, "up"), "x 60 z 72 act 0 frame 2 facing 1")
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -51,7 +51,9 @@ O byte `+0x11` desses socos é 5. `DamagedCheck` instala `GT_FukiUpDamage` (`0x3
 
 `DrawZSort` (`0xd50c`) desenha o maior Z primeiro. Z igual usa o id da task; o id menor fica na frente. `COM_MoveZ` sobe o BASH até a linha do Jimmy, e aí os dois ocupam a mesma profundidade.
 
-`FloorWallCheck` (`0x12c28`) continua sem o miolo. O limite é a largura do mapa e Z 0..95. O ângulo do analógico não foi fechado. Isto é o primeiro encontro com a decisão original de andar e socar, não o jogo, e não a queda completa.
+`FloorWallCheck` (`0x12c28`) empurra o eixo que entrou numa célula cujo height passa da elevação dos pés. No estágio 1 o registro 0 vale 99999 em todo o subtile (formato 0 é zero), e a fileira z 64..79 é esse registro na calçada inicial. Z 63 passa; Z 64 não. O registro 2, formato 5, só aparece mais adiante.
+
+A câmera é `MapScrollCheck` (`0x124b0`). Com um jogador ela segue a margem de `cStage01ScrollPush`: esquerda 80, direita 240, no máximo 12 px por quadro. Depois o índice em `+0x47d4` escolhe `csStage01ScrollLock`. O registro 0 trava a câmera em 0. O registro 1 deixa ir até 191. `ScrollEncountCheck` (`0x181ac`), no modo byte 0, consome a fila enquanto o X do registro é ≤ câmera. A fileira de X 100 só entra depois que a câmera anda. Ela anda quando os dois inimigos com o bit `0x20` terminam `GT_KO` e o gatilho 1 de `csStage01EncData2` soma o índice. Essa fileira traz dois Williams (char 8, draw 7, X 612 e 656) e um Bash (char 4, X 612), e o kind 5 do mesmo X sobe o lock para o registro 2 (mínimo 100, máximo 191). O RNG continua sendo MT com semente 1. A fileira de scroll 303 não está nesta cena.
 
 ## Como rodar
 
@@ -68,12 +70,12 @@ make -C ios linux
 make -C ios windows
 ```
 
-`J` dispara o índice 4. `--dump 240 watch` deixa os dois andarem. `--dump 140 stand` pega os dois no ato 17 (`m 6 6`, vidas 22 e 12). `--dump 500 stand` zera os dois (`m 4 4`) e o quadro 700 continua assim. `--dump 700 crowd` deixa o Jimmy em `pm 4` com vida 0.
+O char 12 da primeira fileira é draw 8, `BOLO.obm`. O char 4 é draw 6, `BASH.obm`. `J` dispara o índice 4. `--dump 80 right` anda até x 278 com `cam 0 lock 0`. `--dump 40 up` para em z 63. `--dump 485 stand` já desligou os dois e a câmera está em 36, lock 1. `--dump 490 stand` ainda está em câmera 96, dois inimigos. `--dump 492 stand` passa de 100 e nasce a fileira `(612,56)`, `(656,32)`, `(612,8)`.
 
 Nesta máquina o Wine 9 rodou o `scene_view.exe` de 64 bits (avisou `wine32` e seguiu):
 
-- `--dump 140 stand` imprimiu `hp 91 22 12 ... m 6 6`.
-- `--dump 500 stand` imprimiu `hp 37 0 0 ... m 4 4`.
+- `--dump 40 up` parou em z 63.
+- `--dump 492 stand` imprimiu `x 344 376 612 656 612` e `cam 120 lock 2 nf 5`.
 - `--dump 700 crowd` imprimiu `hp 0 40 30 ... pm 4`.
 - Sem `--dump`, a janela abriu no display `:1` com os dois inimigos já na calçada. Escape fechou.
 

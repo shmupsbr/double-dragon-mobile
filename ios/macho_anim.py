@@ -63,6 +63,7 @@ ZAKO_C00_PAT = 0x7DF42
 ZAKO_C00_PAT_POINT = 0x7E48A
 ZAKO_C00_IMG = 0x7E56A
 ZAKO_C01_IMG = 0x7E58C
+ZAKO_C02_IMG = 0x7E5AE
 ZAKO_C00_ACT0 = 0xB2174
 ZAKO_C00_ACT1 = 0xB21D0
 ZAKO_C00_ACT10 = 0xB23F0
@@ -302,6 +303,19 @@ def key_config(blob: bytes) -> list[int]:
     return read_i32(blob, KEY_CONFIG, 16)
 
 
+def floor_bytes(blob: bytes) -> tuple[bytes, bytes]:
+    """Stage-1 tile ids and cuiFloorFormat index 5.
+
+    Record 0 is height 99999 on every subcell (format 0 is all zeros).
+    Record 1 is height 0. Record 2 uses format 5: a set bit selects
+    the 99999 height, a clear bit selects 0.
+    """
+    info = stage1_map(blob)
+    tiles = _load(blob, STAGE1_FLOOR, info["floor_w"] * info["floor_h"])
+    fmt5 = _load(blob, FLOOR_FORMAT + 5 * 256, 256)
+    return tiles, fmt5
+
+
 def floor_ground(blob: bytes, x: int, z: int) -> int | None:
     """Pixel ground Y from FloorGroundSet, or None when the tile is outside.
 
@@ -363,6 +377,27 @@ def char_def(blob: bytes, index: int) -> tuple[int, int, int]:
     """csEnemyDataTbl, 24 bytes. Returns type, draw set, hp at +0xc."""
     words = read_i32(blob, ENEMY_TBL + index * 24, 6)
     return words[0], words[1], words[3]
+
+
+def scroll_enemies(blob: bytes, scroll_x: int) -> list[tuple[int, int, int, int, int, int]]:
+    """Kind-3 rows of csStage01EncData whose scroll word equals scroll_x.
+
+    Returns (enemy index, char id, x, z, hp, draw set). Flag bit 1 places
+    the body at camera + 480 + 20. Other rows keep the absolute X.
+    """
+    out = []
+    raw = _load(blob, ENC_LIST, 16 * 40)
+    for i in range(40):
+        scroll, kind, param, _extra = struct.unpack_from("<4i", raw, i * 16)
+        if scroll < 0:
+            break
+        if kind != 3 or scroll != scroll_x:
+            continue
+        char_id, abs_x, depth, flags = enemy_def(blob, param)
+        typ, draw, hp = char_def(blob, char_id)
+        x = SCREEN_W + 20 if flags & 2 else abs_x
+        out.append((param, char_id, x, depth, hp, draw))
+    return out
 
 
 def first_wave(blob: bytes) -> list[tuple[int, int, int, int, int]]:

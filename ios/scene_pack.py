@@ -27,11 +27,15 @@ from ios.macho_anim import (
     ZAKO_C00_ACT45,
     ZAKO_C00_IMG,
     ZAKO_C01_IMG,
+    ZAKO_C02_IMG,
     act_span,
     attack_record,
     billy_move,
+    char_def,
     first_wave,
+    floor_bytes,
     floor_ground,
+    scroll_enemies,
     hero_hp,
     hurt_record,
     zako_attack_record,
@@ -127,7 +131,8 @@ def build(blob: bytes, obm_zip: Path) -> tuple[bytes, dict]:
         jimmy_img = read_i16(blob, JIMMY_IMG, 16)
         zako_img = read_i16(blob, ZAKO_C00_IMG, 8)
         will_img = read_i16(blob, ZAKO_C01_IMG, 8)
-        names = {i: resource_name(blob, i) for i in set(jimmy_img[:8] + zako_img[:4] + will_img[:4] + [69])}
+        bolo_img = read_i16(blob, ZAKO_C02_IMG, 8)
+        names = {i: resource_name(blob, i) for i in set(jimmy_img[:8] + zako_img[:4] + will_img[:4] + bolo_img[:4] + [69])}
         sheets = _sheets(zf, set(names.values()))
     jimmy_rects, jimmy_pat, jimmy_points = jimmy_tables(blob)
     zako_rects = read_rects(blob, ZAKO_RECT, ZAKO_PAT - ZAKO_RECT)
@@ -169,6 +174,15 @@ def build(blob: bytes, obm_zip: Path) -> tuple[bytes, dict]:
     jget = _frames(blob, sheets, names, jimmy_rects, jimmy_pat, jimmy_points, jimmy_img, 0xAA368, 0xAA3AC)
     jlie = _frames(blob, sheets, names, jimmy_rects, jimmy_pat, jimmy_points, jimmy_img, 0xAA348, 0xAA368)
     jdie = _frames(blob, sheets, names, jimmy_rects, jimmy_pat, jimmy_points, jimmy_img, 0xAA4C8, 0xAA528)
+    bidle = _frames(blob, sheets, names, zako_rects, zako_pat, zako_points, bolo_img, ZAKO_C00_ACT0, ZAKO_C00_ACT0 + 0x5C)
+    bwalk = _frames(blob, sheets, names, zako_rects, zako_pat, zako_points, bolo_img, ZAKO_C00_ACT1, 0xB222C)
+    bpunch = _frames(blob, sheets, names, zako_rects, zako_pat, zako_points, bolo_img, ZAKO_C00_ACT45, 0xB2B38)
+    bdown = _frames(blob, sheets, names, zako_rects, zako_pat, zako_points, bolo_img, ZAKO_C00_ACT10, 0xB2410)
+    bland = _frames(blob, sheets, names, zako_rects, zako_pat, zako_points, bolo_img, ZAKO_C00_ACT15, 0xB24BC)
+    bfall = _frames(blob, sheets, names, zako_rects, zako_pat, zako_points, bolo_img, 0xB2430, 0xB2450)
+    bget = _frames(blob, sheets, names, zako_rects, zako_pat, zako_points, bolo_img, 0xB24DC, 0xB2514)
+    blie = _frames(blob, sheets, names, zako_rects, zako_pat, zako_points, bolo_img, 0xB24BC, 0xB24DC)
+    bdie = _frames(blob, sheets, names, zako_rects, zako_pat, zako_points, bolo_img, 0xB2618, 0xB2638)
     wave = first_wave(blob)
     zatk = zako_attack_record(blob, 6)
     zvx, zvz = zako_move(blob)
@@ -189,7 +203,7 @@ def build(blob: bytes, obm_zip: Path) -> tuple[bytes, dict]:
     payload += struct.pack(
         "<4sHHHiiiiiiiiiiHHHH",
         b"DD1S",
-        5,
+        6,
         480,
         320,
         info["pixel_w"],
@@ -213,9 +227,12 @@ def build(blob: bytes, obm_zip: Path) -> tuple[bytes, dict]:
     payload += struct.pack("<6b", *hurt)
     payload += struct.pack("<2h", 90, 10)
     payload += struct.pack("<i", len(wave))
+    # Draw-set image slots from the installer at 0x100c8/0x100ea/0x1010c:
+    # 6 BASH, 7 WILLIAMS, 8 BOLO. Char 12 is draw 8, so the opening tall foe is Bolo.
+    draw_sheet = {6: 0, 7: 1, 8: 2}
     for _param, _char, x, z, hp in wave:
-        sheet = 1 if _char == 12 else 0
-        payload += struct.pack("<4i", x, z, hp, sheet)
+        _typ, draw, _hp = char_def(blob, _char)
+        payload += struct.pack("<4i", x, z, hp, draw_sheet[draw])
     payload += struct.pack(
         "<6H4i7h",
         len(zwalk_b), len(zwalk_w), len(zpunch_b), len(zpunch_w), len(zdown_b), len(jdown),
@@ -246,8 +263,16 @@ def build(blob: bytes, obm_zip: Path) -> tuple[bytes, dict]:
         zwalk_b, zwalk_w, zpunch_b, zpunch_w, zdown_b, zdown_w, jdown, zland_b, zland_w, jland,
         zfall_b, zfall_w, zget_b, zget_w, jfall, jget,
         zlie_b, zlie_w, jlie, zdie_b, zdie_w, jdie,
+        bidle, bwalk, bpunch, bdown, bland, bfall, bget, blie, bdie,
     ):
         put_group(group)
+    tiles, fmt5 = floor_bytes(blob)
+    payload += tiles
+    payload += fmt5
+    later = scroll_enemies(blob, 100)
+    payload += struct.pack("<i", len(later))
+    for _param, _char, x, z, hp, draw in later:
+        payload += struct.pack("<4i", x, z, hp, draw_sheet[draw])
     meta = {
         "spawn": (spawn_x, spawn_z),
         "ground": floor_ground(blob, spawn_x, spawn_z),

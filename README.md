@@ -2,7 +2,7 @@
 
 Rascunho privado. Não é um remake e não publica o jogo.
 
-O APK `com.ggee.vividruntime.gg_1327` 2.9.0 é o runtime Android (armeabi). O jogo em si está no cache `RuntimeApps/gg/1327/`. Com os arquivos deste rascunho o executável original **não abre**: `DoubleDragon.exe` e `libaudio.so` são ciphertext, e faltam `res.pak` e o rights object de onde o loader lê a chave.
+O APK `com.ggee.vividruntime.gg_1327` 2.9.0 é o runtime Android (armeabi). O `res.pak` original, remontado dos três pedaços, confere com a assinatura e está em claro. `DoubleDragon.exe` continua ciphertext. O cache listado não contém `keystore.dat` nem um XML `ro_response`, que é o que o `postLoadHook` lê antes de decifrar o módulo.
 
 ## O que está verificado
 

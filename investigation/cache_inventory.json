@@ -1,0 +1,69 @@
+{
+  "reassembly": {
+    "res.pak_size": 53382332,
+    "res.pak_sha256": "43a24c7f0c5354ecd10e09488422046fcc2081018e5b3e6fec3a430e67659291",
+    "parts": [
+      {
+        "file": "res.pak.part01",
+        "bytes": 18000000,
+        "sha256": "2afc1a4d5fcce915919552afdd476d175dcff701310510191702f63375c3642f"
+      },
+      {
+        "file": "res.pak.part02",
+        "bytes": 18000000,
+        "sha256": "a0fdbb7cd3d044bdc449abb1abdf933eb371c09bcbf1aa78e613e3a7488fa645"
+      },
+      {
+        "file": "res.pak.part03",
+        "bytes": 17382332,
+        "sha256": "83d4ec6b62233b5d3d40c1401c8fb4cc2ccb13b4bb9da1ac963aab83f5196920"
+      }
+    ]
+  },
+  "cache_files_name_size_only": [
+    {
+      "path": "RuntimeApps/gg/.nomedia",
+      "bytes": 0
+    },
+    {
+      "path": "RuntimeApps/gg/1327/DoubleDragon.exe",
+      "bytes": 4219674
+    },
+    {
+      "path": "RuntimeApps/gg/1327/Icon_90.png",
+      "bytes": 25670
+    },
+    {
+      "path": "RuntimeApps/gg/1327/config.xml",
+      "bytes": 354
+    },
+    {
+      "path": "RuntimeApps/gg/1327/data/save.dat",
+      "bytes": 400
+    },
+    {
+      "path": "RuntimeApps/gg/1327/data/saveserv.dat",
+      "bytes": 80
+    },
+    {
+      "path": "RuntimeApps/gg/1327/libaudio.so",
+      "bytes": 146855
+    },
+    {
+      "path": "RuntimeApps/gg/1327/res.pak",
+      "bytes": 53382332
+    },
+    {
+      "path": "RuntimeApps/gg/1327/signature.xml",
+      "bytes": 3620
+    },
+    {
+      "path": "RuntimeApps/ticketdata/lsik",
+      "bytes": 44
+    },
+    {
+      "path": "RuntimeApps/ticketdata/member_code",
+      "bytes": 24
+    }
+  ]
+}

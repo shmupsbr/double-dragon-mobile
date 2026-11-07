@@ -137,14 +137,18 @@ def check_bootstrap(boot: bytes) -> list[str]:
     delta = s32(boot, 0x861E4)
     if (GOT_VA + delta) & 0xFFFFFFFF != CEK_STRING_VA:
         raise AssertionError("PIC literal does not point at /ro/cek")
-    lines.append(f"key resolve {KEY_RESOLVE_VA:#x}: r8==0 selects /ro/cek; r8==1 selects /ro/pek")
+    lines.append(
+        f"key resolve {KEY_RESOLVE_VA:#x}: r8>1 throws Invalid key argument; "
+        "r8<=1 parses ro_response. A later compare at 0x86160 maps r8==0 to "
+        "/ro/cek and r8==1 to /ro/pek for a different document."
+    )
 
     mode = boot[CALL_MODE_ZERO_VA : CALL_MODE_ZERO_VA + 2]
     if mode != b"\x00\x22":
         raise AssertionError(f"expected movs r2,#0 at {CALL_MODE_ZERO_VA:#x}, got {mode.hex()}")
     lines.append(
-        f"post-load call {CALL_MODE_ZERO_VA:#x}: movs r2,#0 then bl pipeline "
-        "(this passes mode 0, so the xpath is /ro/cek)"
+        f"post-load call {CALL_MODE_ZERO_VA:#x}: movs r2,#0 then bl pipeline. "
+        "Mode 0 reaches the ro_response parser; it does not supply a key from disk."
     )
     lines.append(
         "pipeline reads 16 bytes with std::istream::read (PLT veneer "
@@ -163,10 +167,32 @@ def check_bootstrap(boot: bytes) -> list[str]:
         "AuthenticatedDecryptionFilter vtable is installed by ELF "
         f"{0xE5F9C:#x}, called from inside the pipeline"
     )
+    lines.append(
+        "The same key function, on the r8<=1 path taken by postLoad, first "
+        "parses an ro_response XML (xmlns 1.0 or 1.1) and reads "
+        "/ro_response/key plus /ro_response/payload. /ro/cek is a later branch "
+        "for a different document shape, not a substitute for that XML."
+    )
+    lines.append(
+        "After a non-empty payload, ELF 0x85b98 calls the keystore routine "
+        "0x7e500, which opens /data/keystore.dat. A static XOR mask in that "
+        "routine is not the module key."
+    )
     return lines
 
 
-def audit(apk: Path, cache: Path) -> tuple[int, str]:
+def pak_is_plaintext_container(data: bytes) -> bool:
+    # The on-disk pak starts with the OBM magic used by the asset files and
+    # ends with the index trailer already identified in the user's notes.
+    return data[:2] == b"OI" and data[-8:] == bytes.fromhex("d0502e0300000000")
+
+
+def inventory_names(inventory: dict) -> list[str]:
+    rows = inventory.get("cache_files_name_size_only") or []
+    return [row["path"] for row in rows]
+
+
+def audit(apk: Path, cache: Path, inventory: dict | None = None) -> tuple[int, str]:
     lines: list[str] = []
     lines.append("Double Dragon G-gee / Acrodea — auditoria somente leitura")
     lines.append(f"apk: {apk}")
@@ -217,13 +243,35 @@ def audit(apk: Path, cache: Path) -> tuple[int, str]:
             lines.append(f"  {name}: AUSENTE")
 
     lines.append("")
-    if missing_signed or not present_runtime:
-        lines.append("BLOQUEIO: o executável original não pode ser aberto com este conjunto.")
-        lines.append("DoubleDragon.exe permanece ciphertext (entropia ~8, sem ELF).")
-        lines.append("A CEK não está nestes arquivos; o loader lê o nó XML /ro/cek de um rights object.")
-        lines.append("Trocar o imediato r2 de 0 para 1 só escolheria /ro/pek. Não decifra instruções.")
+    pak = cache / "res.pak"
+    if pak.is_file():
+        blob = pak.read_bytes()
+        lines.append(
+            f"res.pak container: plaintext_obm_trailer={pak_is_plaintext_container(blob)} "
+            f"png_at={blob.find(bytes([0x89, 0x50, 0x4E, 0x47]))}"
+        )
+    if inventory is not None:
+        names = inventory_names(inventory)
+        lines.append("")
+        lines.append("Listing completo do cache original (só nome e tamanho):")
+        for row in inventory["cache_files_name_size_only"]:
+            lines.append(f"  {row['bytes']:10} {row['path']}")
+        absent = [
+            name
+            for name in ("keystore.dat", "datastore.dat", "ssdata.dat", "ssstore.dat")
+            if not any(path.endswith(name) for path in names)
+        ]
+        lines.append("Nomes de chave/RO ausentes desse listing: " + ", ".join(absent))
+    lines.append("")
+    if "keystore.dat" in present_runtime and (cache / "res.pak").is_file():
+        lines.append("Os nomes de runtime estão no diretório. O conteúdo ainda precisa ser validado.")
     else:
-        lines.append("Cache contém os arquivos de runtime nomeados. Ainda falta validar o conteúdo.")
+        lines.append("BLOQUEIO: o módulo original não é executável com os arquivos presentes.")
+        lines.append("DoubleDragon.exe permanece ciphertext (entropia ~8, sem ELF).")
+        lines.append("res.pak, quando presente e com o digest da assinatura, é o pacote de recursos em claro.")
+        lines.append("O postLoad exige um XML ro_response (key e payload) e abre /data/keystore.dat.")
+        lines.append("Nenhum desses insumos está no APK, no exe, no pak ou no listing do cache.")
+        lines.append("Trocar o ramo de /ro/cek para /ro/pek, ou pular o teste, não grava instruções no exe.")
     text = "\n".join(lines) + "\n"
     # Exit 0 when the trace itself holds. Missing game files are reported in the text,
     # not treated as a broken auditor.

@@ -210,19 +210,21 @@ class SceneDumpTest(unittest.TestCase):
         self.assertIn("fz 56 8 63", first)
         self.assertIn("fz 56 8 43", done)
 
-    def test_route_opens_the_door_then_dies_on_that_pair(self):
-        # Continuous input: kicks through the street, then past x 760
-        # closes Z and uses kick or button 7. No HP or quota edit.
-        # Phase 1 is set by frame 1000. By frame 1500 Jimmy is dead on
-        # their lane and the pair is still at 40 and 30, so phase stays 1.
-        opened = self.dump(1000, "route")
-        ended = self.dump(1500, "route")
-        self.assertIn("ph 1", opened)
-        self.assertIn("nf 10", opened)
-        self.assertIn("hp 0 ", ended)
-        self.assertIn("pm 4", ended)
-        self.assertIn("ph 1", ended)
-        self.assertIn("40 30", ended)
+    def test_door_spawn_takes_a_real_kick_and_opens_the_wall(self):
+        # Same authentic spawn as the old route (no placement, HP, flag,
+        # or quota edit). The approach stays 10px off their Z, outside the
+        # zako punch test, until X is inside the kick, then steps in and kicks.
+        # One close kick is 10, scaled to 15: 40 becomes 25 and 30 becomes 15.
+        # Both deaths are what set phase 2 and the x=992 wave.
+        fresh = self.dump(1140, "route")
+        kicked = self.dump(1160, "route")
+        wall = self.dump(1400, "route")
+        self.assertIn("ph 1", fresh)
+        self.assertIn("40 30", fresh)
+        self.assertIn("25 15", kicked)
+        self.assertIn("ph 1", kicked)
+        self.assertIn("ph 2", wall)
+        self.assertIn("992", wall)
 
     def test_player_loss_stays_down(self):
         text = self.dump(700, "crowd")

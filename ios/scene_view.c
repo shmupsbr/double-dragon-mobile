@@ -2024,6 +2024,61 @@ static void route_buttons(Scene *scene, Body *hero, int *left, int *right,
     }
 }
 
+/* After the real door spawn, stay outside the zako punch Z (7px) until X
+   is inside the kick, then step onto their Z and kick on the next tick.
+   Player priority 2 starts that kick before they can open a punch. */
+static void door_buttons(Scene *scene, Body *hero, int *left, int *right,
+                          int *up, int *down, int *attack) {
+    int f, best = -1, best_dx = 100000;
+    int hx, hz, dx, dz, adx, adz, want;
+    if (scene->phase < 1) {
+        route_buttons(scene, hero, left, right, up, down, attack);
+        return;
+    }
+    if (hero->mode != 0 || hero->punch_act != 0) return;
+    hx = hero->x_fp >> 16;
+    hz = hero->z_fp >> 16;
+    for (f = 0; f < scene->n_foes; f++) {
+        Foe *foe = &scene->foes[f];
+        int d;
+        if (!foe->alive || foe->hp <= 0 || foe->mode >= 2 || foe->wall_cc >= 0) continue;
+        if (foe->x < 700) continue;
+        d = foe->x - hx;
+        if (d < 0) d = -d;
+        if (d < best_dx) {
+            best_dx = d;
+            best = f;
+        }
+    }
+    if (best < 0) {
+        route_buttons(scene, hero, left, right, up, down, attack);
+        return;
+    }
+    dx = scene->foes[best].x - hx;
+    dz = scene->foes[best].z - hz;
+    adx = dx < 0 ? -dx : dx;
+    adz = dz < 0 ? -dz : dz;
+    if (adx > 36) {
+        if (dx > 0) *right = 1;
+        else *left = 1;
+        want = scene->foes[best].z + (scene->foes[best].z > 50 ? -10 : 10);
+        if (hz < want - 1) *up = 1;
+        else if (hz > want + 1) *down = 1;
+        return;
+    }
+    if ((dx > 0 && hero->facing == 0) || (dx < 0 && hero->facing == 1)) {
+        if (dx > 0) *right = 1;
+        else *left = 1;
+        return;
+    }
+    if (adz > 4) {
+        if (dz > 0) *up = 1;
+        else *down = 1;
+        return;
+    }
+    *attack = 2;
+}
+
 #if defined(_WIN32)
 #include <windows.h>
 
@@ -2110,7 +2165,7 @@ static int run_window(Scene *scene) {
         }
         if (getenv("ROUTE")) {
             int left = 0, right = 0, up = 0, down = 0, attack = 0;
-            route_buttons(scene, &hero, &left, &right, &up, &down, &attack);
+            door_buttons(scene, &hero, &left, &right, &up, &down, &attack);
             step_body(scene, &hero, left, right, up, down, was_atk ? 0 : attack);
             was_atk = attack;
         } else {
@@ -2350,7 +2405,7 @@ static int run_dump(Scene *scene, const char *path, int frames, int hold) {
             fired = 1;
         }
         if (hold == 13 && i > 40 && hero.mode == 0) attack = 1;
-        if (hold == 15) route_buttons(scene, &hero, &left, &right, &up, &down, &attack);
+        if (hold == 15) door_buttons(scene, &hero, &left, &right, &up, &down, &attack);
         if (hold == 16 && i == 0) attack = 3;
         if (hold == 17 && i == 2) attack = 2;
         if (hold == 18) { right = 1; if (i == 0) attack = 3; }

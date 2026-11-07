@@ -26,6 +26,7 @@ from unicorn.arm_const import (
 
 BOOT = Path("/tmp/dd-work/assets/bootstrap.exe")
 EXE = Path("/workspace/investigation/cache1327/DoubleDragon.exe")
+AUDIO = Path("/workspace/investigation/cache1327/libaudio.so")
 
 # Final stores into the 16-byte buffer, in execution order (dest offset, pool).
 MASK_STORES = (
@@ -208,6 +209,25 @@ def emulate_xor(boot: bytes, device: bytes) -> dict:
     return {"derived": derived, "path": path, "length": length}
 
 
+def iv_parameter_name(boot: bytes) -> bytes:
+    """Recompute the NameValuePairs name built at 0xa7eee for SetKey."""
+    # 0xa7ee8 ldr r5,[pc,#imm]; 0xa7ef2 add r5, pc; 0xa7eee ldr r1,[pc,#imm]; 0xa7f04 add r1, r5
+    pc = (0xA7EE8 + 4) & ~3
+    r5 = (0xA7EF2 + 4 + struct.unpack_from("<i", boot, pc + pool_imm(boot, 0xA7EE8))[0]) & 0xFFFFFFFF
+    pc = (0xA7EEE + 4) & ~3
+    delta = struct.unpack_from("<i", boot, pc + pool_imm(boot, 0xA7EEE))[0]
+    addr = (r5 + delta) & 0xFFFFFFFF
+    return boot[addr : addr + 2]
+
+
+def pool_imm(boot: bytes, insn: int) -> int:
+    from capstone import CS_MODE_THUMB
+
+    md = Cs(CS_ARCH_ARM, CS_MODE_THUMB)
+    ins = next(md.disasm(boot[insn : insn + 4], insn))
+    return int(ins.op_str.split("#")[-1].rstrip("]"), 0)
+
+
 def gcm_mask_authenticates(exe: bytes, mask: bytes) -> bool:
     """One layout matching istream::read(16) at offset 0 and a 16-byte tag suffix.
     This is a single elimination trial, not a search."""
@@ -245,11 +265,28 @@ def main() -> int:
     expect = wrapped_xor(mask, fixture)
     print("fixture_derived_hex", mixed["derived"].hex())
     print("fixture_matches_wrapped_xor", mixed["derived"] == expect, "path", mixed["path"])
+    audio = AUDIO.read_bytes()
     authed = gcm_mask_authenticates(exe, mask)
-    print("gcm_iv0_tag_suffix_key_mask_authenticates", authed)
-    print("exe_head", exe[:4].hex(), "elf", exe[:4] == b"\x7fELF")
+    authed_audio = gcm_mask_authenticates(audio, mask)
+    # keystore function resizes the copied password to 32 with fill 0, then reads 16.
+    print("keystore_resize_imm", boot[0x8F30C : 0x8F30E].hex(), "expect 2021 movs r1,#0x20")
+    print("keystore_read_imm", boot[0x8F31C : 0x8F31E].hex(), "expect 1022 movs r2,#0x10")
+    print("module_read_imm", boot[0x86928 : 0x8692A].hex(), "expect 1022 movs r2,#0x10")
+    print("iv_parameter_name", iv_parameter_name(boot))
+    print("gcm_exe_mask16_iv0_tag_end", authed)
+    print("gcm_audio_mask16_iv0_tag_end", authed_audio)
+    print("exe_head", exe[:4].hex(), "audio_head", audio[:4].hex())
     print("original_module_recovered", False)
-    return 0 if mixed["derived"] == expect and not authed and empty["path"] == "/data/keystore.dat" else 1
+    ok = (
+        mixed["derived"] == expect
+        and not authed
+        and not authed_audio
+        and empty["path"] == "/data/keystore.dat"
+        and iv_parameter_name(boot) == b"IV"
+        and boot[0x8F30C : 0x8F30E] == b"\x20\x21"
+        and boot[0x86928 : 0x8692A] == b"\x10\x22"
+    )
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":

@@ -4,9 +4,11 @@ import unittest
 from pathlib import Path
 
 from tools.envelope_probe import (
+    AUDIO,
     EXE,
     emulate_xor,
     gcm_mask_authenticates,
+    iv_parameter_name,
     mask_bytes,
     wrapped_xor,
 )
@@ -27,7 +29,11 @@ class EnvelopeProbeTest(unittest.TestCase):
         mixed = emulate_xor(boot, fixture)
         self.assertEqual(mixed["derived"], wrapped_xor(mask, fixture))
         self.assertNotEqual(mixed["derived"], mask)
+        self.assertEqual(iv_parameter_name(boot), b"IV")
+        self.assertEqual(boot[0x8F30C:0x8F30E], b"\x20\x21")  # movs r1, #0x20
+        self.assertEqual(boot[0x86928:0x8692A], b"\x10\x22")  # movs r2, #0x10
         self.assertFalse(gcm_mask_authenticates(exe, mask))
+        self.assertFalse(gcm_mask_authenticates(AUDIO.read_bytes(), mask))
         self.assertNotEqual(exe[:4], b"\x7fELF")
 
 

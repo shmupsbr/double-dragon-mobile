@@ -114,19 +114,29 @@ class SceneDumpTest(unittest.TestCase):
         self.assertIn("lock 2", unlocked)
         self.assertIn("q 0", unlocked)
 
-    def test_scripted_route_reaches_the_door_then_dies(self):
-        # Real punches. The lunge spacing is input, not an HP change.
-        # Frame 800 has cleared the scroll-100 quota, so lock 3 lets the
-        # camera show the door. Linda and Williams are still up, and the
-        # phase word is still 0. Frame 1000 is the player down.
-        there = self.dump(800, "route")
-        self.assertIn("lock 3", there)
-        self.assertIn("pm 0", there)
-        self.assertIn("25 40", there)
-        self.assertIn("ph 0", there)
-        down = self.dump(1000, "route")
-        self.assertIn("pm 4", down)
-        self.assertIn("ph 0", down)
+    def test_jump_rises_and_lands_in_act_five(self):
+        apex = self.dump(6, "jump")
+        down = self.dump(18, "jump")
+        self.assertIn("pm 11", apex)
+        self.assertIn("y 191", apex)
+        self.assertIn("pm 0", down)
+        self.assertIn("y 239", down)
+
+    def test_close_kick_is_reaction_five(self):
+        # Labeled fixture: one foe standing inside the 90px close-kick test.
+        text = self.dump(8, "kick")
+        self.assertIn(" 25 x", text)
+        self.assertIn("m 0 0 2", text)
+
+    def test_scripted_kicks_open_the_door(self):
+        # Kick and jump only. No quota hook. Frame 1092 is phase 1,
+        # before the extra-10 enemy is in the list. Frame 1096 has him.
+        opening = self.dump(1092, "route")
+        spawned = self.dump(1096, "route")
+        self.assertIn("ph 1", opening)
+        self.assertIn("nf 9", opening)
+        self.assertIn("ph 1", spawned)
+        self.assertIn("nf 10", spawned)
 
     def test_player_loss_stays_down(self):
         text = self.dump(700, "crowd")

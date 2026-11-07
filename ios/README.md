@@ -70,7 +70,7 @@ make -C ios linux
 make -C ios windows
 ```
 
-O char 12 da primeira fileira é draw 8, `BOLO.obm`. O char 4 é draw 6, `BASH.obm`. `J` dispara o índice 4. `--dump 80 right` anda até x 278 com `cam 0 lock 0`. `--dump 4 up` para em z 63. `--dump 307 stand` ainda está em câmera 96. `--dump 308 stand` passa de 100 e nasce `(612,56)`, `(656,32)`, `(612,8)`. `--dump 780 stand` traz a Linda e o Williams em 303, ainda na queda. O reaction 2 dela (ato 7, hitstun 0, timer 5 no jogador) está em `--dump 24 react` (`pm 10`, vida 94) e o quadro 30 volta a `pm 0`. O soco do Jimmy em seguida a derruba. Com a fórmula de `PushHitCheckX` esta semente derruba o Jimmy antes da câmera chegar a 687, então essa fileira não aparece neste passeio.
+O char 12 da primeira fileira é draw 8, `BOLO.obm`. O char 4 é draw 6, `BASH.obm`. `J` é o botão lógico 4 (soco). `K` é o 5 (chute: ato 30 longe, 46 perto, 31 no ar). Espaço é o 6 (pulo, ato 3, aterrissa no ato 5). `--dump 80 right` anda até x 278 com `cam 0 lock 0`. `--dump 4 up` para em z 63. `--dump 307 stand` ainda está em câmera 96. `--dump 308 stand` passa de 100 e nasce `(612,56)`, `(656,32)`, `(612,8)`. `--dump 780 stand` traz a Linda e o Williams em 303, ainda na queda. O reaction 2 dela (ato 7, hitstun 0, timer 5 no jogador) está em `--dump 24 react` (`pm 10`, vida 94) e o quadro 30 volta a `pm 0`. O soco do Jimmy em seguida a derruba. Com a fórmula de `PushHitCheckX` esta semente derruba o Jimmy antes da câmera chegar a 687, então essa fileira não aparece neste passeio.
 
 Nesta máquina o Wine 9 rodou o `scene_view.exe` de 64 bits (avisou `wine32` e seguiu):
 

@@ -34,11 +34,12 @@ typedef struct {
     int x, z, hp, alive, sheet, frame, timer, shown, hit;
     int facing, mode, cmd, counts;
     int x_fp, z_fp, y_fp, vx, vz, yv, ya;
-    int no_push, entrance;
+    int no_push, wall_cc, wall_c8, z_vel;
 } Foe;
 
 typedef struct {
-    int x, z, alive, phase, extra, delay, despawn, age, fired;
+    int x, z, place_y, alive, phase, extra, fire_mode;
+    int frame, timer, playing, shown, fired;
 } Prop;
 
 typedef struct {
@@ -113,6 +114,8 @@ typedef struct {
     int ln[9];
     int mn[9];
     Frame *macho[9];
+    Frame *objf[4];
+    int objn[4];
     int n_rows, row_i, trigger;
     int rows[28][8];
     int camera, lock_i, quota, phase;
@@ -201,7 +204,7 @@ static Scene *load_scene(const char *path) {
     if (!fp) return NULL;
     scene = calloc(1, sizeof(Scene));
     if (!scene || !rd(fp, magic, 4) || memcmp(magic, "DD1S", 4) != 0) goto fail;
-    if (!ru16(fp, &version) || version != 9) goto fail;
+    if (!ru16(fp, &version) || version != 10) goto fail;
     if (!ru16(fp, &vw) || !ru16(fp, &vh)) goto fail;
     if (!ri32(fp, &scene->map_w) || !ri32(fp, &scene->map_h)) goto fail;
     if (!ri32(fp, &scene->spawn_x) || !ri32(fp, &scene->spawn_z)) goto fail;
@@ -342,6 +345,13 @@ static Scene *load_scene(const char *path) {
         for (k = 0; k < 8; k++) {
             if (!ri32(fp, &scene->edict[vw][k])) goto fail;
         }
+    }
+    for (vw = 0; vw < 4; vw++) {
+        if (!ru16(fp, &scene->objn[vw])) goto fail;
+    }
+    for (vw = 0; vw < 4; vw++) {
+        scene->objf[vw] = load_frames(fp, scene->objn[vw]);
+        if (!scene->objf[vw] || scene->objn[vw] <= 0) goto fail;
     }
     scene->trigger = -1;
     if (!scene->idle || !scene->walk || !scene->bash || !scene->will || !scene->p28 || !scene->p29 ||
@@ -723,10 +733,11 @@ static void spawn_enemy(Scene *scene, int x, int z, int hp, int sheet, int flags
     foe->alive = 1;
     foe->counts = (flags & 0x20) ? 1 : 0;
     /* Flag 0x10 sets +0x44 bit 0x400, and PushHitCheckX skips that task.
-       Flag 0x100 is entry 2's wall entrance: EnemyWallEntry waits 1+8+3
-       frames and slides at the -131072 stored by cb90. */
+       Flag 0x100 selects GT_EnemyWallEntry: state 0 stores Z vel -131072,
+       state 1 counts d0 (8) down, state 2 counts 3, then ReadySet. */
     foe->no_push = (flags & 0x10) ? 1 : 0;
-    foe->entrance = (flags & 0x100) ? 12 : 0;
+    foe->wall_cc = (flags & 0x100) ? 0 : -1;
+    foe->z_vel = 0;
     foe->x_fp = x << 16;
     foe->z_fp = z << 16;
     foe->y_fp = 0xEF << 16;
@@ -805,22 +816,39 @@ static void step_world(Scene *scene) {
     }
     for (i = 0; i < scene->n_props; i++) {
         Prop *prop = &scene->props[i];
-        if (!prop->alive || prop->phase <= 0) continue;
-        if (!prop->fired && prop->age == 0 && scene->phase != prop->phase) continue;
-        if (prop->age == 0 && scene->phase == prop->phase && !prop->fired) {
-            /* DoorReady / WallReady ActionSet this tick. The new proc
-               starts checking on the following ticks. */
-            prop->age = 0;
-            prop->fired = -1;
+        int group, n;
+        Frame *frames;
+        if (!prop->alive || prop->phase <= 0 || prop->fire_mode == 0) continue;
+        group = prop->fire_mode == 1 ? 1 : 3;
+        frames = scene->objf[group];
+        n = scene->objn[group];
+        if (!prop->playing) {
+            if (scene->phase != prop->phase) continue;
+            /* ActionSet inside the ready proc shows the first frame this tick. */
+            prop->playing = 1;
+            prop->frame = 0;
+            prop->timer = n > 0 ? frames[0].duration : 1;
+            prop->shown = 1;
             continue;
         }
-        if (prop->fired == 0) continue;
-        prop->age++;
-        if (prop->fired < 0 && prop->age == prop->delay) {
+        if (n <= 0) continue;
+        prop->timer--;
+        if (prop->timer > 0) continue;
+        prop->frame++;
+        if (prop->frame >= n) {
+            /* STOP. WallBreak fires here. DoorOpen already fired on its flag. */
+            if (prop->fire_mode == 2 && !prop->fired) {
+                prop->fired = 1;
+                apply_key(scene, prop->extra);
+            }
+            prop->alive = 0;
+            continue;
+        }
+        prop->timer = frames[prop->frame].duration;
+        if (prop->fire_mode == 1 && !prop->fired && (frames[prop->frame].flags & 0x10000000)) {
             prop->fired = 1;
             apply_key(scene, prop->extra);
         }
-        if (prop->despawn > 0 && prop->age >= prop->despawn) prop->alive = 0;
     }
 }
 
@@ -868,8 +896,8 @@ static void consume_rows(Scene *scene) {
             prop->z = row[3];
             prop->phase = row[4];
             prop->extra = row[5];
-            prop->delay = row[6];
-            prop->despawn = row[7];
+            prop->place_y = row[6];
+            prop->fire_mode = row[7];
             prop->alive = 1;
         }
     }
@@ -882,25 +910,57 @@ static void step_foes(Scene *scene, Body *hero) {
         Foe *foe = &scene->foes[i];
         int n, dx, dz;
         if (!foe->alive || foe->mode == 4) continue;
-        if (foe->entrance > 0 && foe->mode < 2) {
-            int ox = foe->x_fp >> 16;
-            int oz = foe->z_fp >> 16;
-            foe->x_fp += -131072;
-            slide_body(scene, &foe->x_fp, &foe->z_fp, ox, oz);
-            foe->x = foe->x_fp >> 16;
-            foe->z = foe->z_fp >> 16;
-            foe->entrance--;
-            n = foe_count(scene, foe);
-            if (!foe->shown) {
-                foe->timer = foe_pose(scene, foe)->duration;
-                foe->shown = 1;
-            } else if (n > 0) {
-                foe->timer -= 1;
-                if (foe->timer <= 0) {
-                    foe->frame = (foe->frame + 1) % n;
-                    foe->timer = foe_pose(scene, foe)->duration;
+        if (foe->wall_cc >= 0 && foe->mode < 2) {
+            const Frame *walk;
+            int wn;
+            /* 0xe9c0 integrates +0x84 into Z before the state counter runs.
+               State 0 stores that velocity afterwards, so the first tick
+               does not move. FloorWallCheck's sub-tile eject while the
+               body is already inside the building row is not re-solved;
+               the 11 velocity ticks are the ones this proc applies. */
+            if (foe->wall_cc > 0) {
+                foe->z_fp += foe->z_vel;
+                foe->z = foe->z_fp >> 16;
+            }
+            if (foe->wall_cc == 0) {
+                foe->z_vel = -131072;
+                foe->wall_c8 = 8;
+                foe->wall_cc = 1;
+            } else {
+                foe->wall_c8--;
+                if (foe->wall_c8 <= 0) {
+                    if (foe->wall_cc == 1) {
+                        foe->wall_c8 = 3;
+                        foe->wall_cc = 2;
+                    } else {
+                        foe->z_vel = 0;
+                        foe->wall_cc = -1;
+                        foe->vz = 0;
+                        foe->mode = 0;
+                        foe->frame = 0;
+                        foe->shown = 0;
+                        foe->x = foe->x_fp >> 16;
+                        continue;
+                    }
                 }
             }
+            foe->vx = 0;
+            foe->vz = 1;
+            sheet_anim(scene, foe->sheet, 1, &walk, &wn);
+            if (walk && wn > 0) {
+                if (!foe->shown) {
+                    foe->timer = walk->duration;
+                    foe->shown = 1;
+                } else {
+                    foe->timer--;
+                    if (foe->timer <= 0) {
+                        foe->frame = (foe->frame + 1) % wn;
+                        foe->timer = walk[foe->frame].duration;
+                    }
+                }
+            }
+            foe->x = foe->x_fp >> 16;
+            foe->vz = 1;
             continue;
         }
         foe->vx = 0;
@@ -1351,6 +1411,13 @@ static void paint(Scene *scene, const Body *hero, uint8_t *fb) {
             kind[n] = i;
             n++;
         }
+        for (i = 0; i < scene->n_props; i++) {
+            if (!scene->props[i].alive || scene->props[i].fire_mode == 0) continue;
+            z[n] = scene->props[i].z;
+            id[n] = 100 + i;
+            kind[n] = -2 - i;
+            n++;
+        }
         for (a = 0; a < n; a++) {
             for (b = a + 1; b < n; b++) {
                 if (z[b] > z[a] || (z[b] == z[a] && id[b] > id[a])) {
@@ -1365,7 +1432,19 @@ static void paint(Scene *scene, const Body *hero, uint8_t *fb) {
             }
         }
         for (a = 0; a < n; a++) {
-            if (kind[a] < 0) {
+            if (kind[a] < -1) {
+                const Prop *prop = &scene->props[-2 - kind[a]];
+                int group = prop->playing ? (prop->fire_mode == 1 ? 1 : 3) : (prop->fire_mode == 1 ? 0 : 2);
+                const Frame *fr;
+                int fi;
+                if (group < 0 || scene->objn[group] <= 0) continue;
+                fi = prop->playing ? prop->frame : 0;
+                if (fi < 0 || fi >= scene->objn[group]) fi = scene->objn[group] - 1;
+                fr = &scene->objf[group][fi];
+                sx = prop->x - camera;
+                sy = (0xEF - prop->place_y) - prop->z;
+                blit(fb, VIEW_W, VIEW_H, fr->px, fr->w, fr->h, sx - fr->ox, sy - fr->oy, 0);
+            } else if (kind[a] < 0) {
                 pose = hero_pose(scene, hero);
                 ground = ground_at(scene, hero->x_fp >> 16, hero->z_fp >> 16);
                 if (ground < -10000) ground = 0xEF;
@@ -1401,6 +1480,32 @@ static int write_ppm(const char *path, const uint8_t *fb) {
     }
     fclose(fp);
     return 1;
+}
+
+/* Scripted stick and the one punch button. Not a KO hook: punches go through
+   the normal lunge and the enemies die only if that hit connects. */
+static void route_buttons(Scene *scene, Body *hero, int *left, int *right, int *attack) {
+    int f, best = 100000, behind = 100000, bdz = 100;
+    int hx, hz;
+    if (hero->mode != 0 || hero->punch_act != 0) return;
+    hx = hero->x_fp >> 16;
+    hz = hero->z_fp >> 16;
+    for (f = 0; f < scene->n_foes; f++) {
+        int dx, adz;
+        if (!scene->foes[f].alive || scene->foes[f].mode == 4) continue;
+        dx = scene->foes[f].x - hx;
+        adz = scene->foes[f].z - hz;
+        if (adz < 0) adz = -adz;
+        if (dx <= -16 && -dx < behind) behind = -dx;
+        if (dx > -16 && dx < best && adz < 18) {
+            best = dx;
+            bdz = adz;
+        }
+    }
+    if (best >= 36 && best < 72 && bdz < 14) *attack = 1;
+    else if (best < 36) *left = 1;
+    else if (best == 100000 && behind < 800) *left = 1;
+    else *right = 1;
 }
 
 #if defined(_WIN32)
@@ -1483,8 +1588,15 @@ static int run_window(Scene *scene) {
             TranslateMessage(&msg);
             DispatchMessage(&msg);
         }
-        step_body(scene, &hero, g_left, g_right, g_up, g_down, g_atk && !was_atk);
-        was_atk = g_atk;
+        if (getenv("ROUTE")) {
+            int left = 0, right = 0, attack = 0;
+            route_buttons(scene, &hero, &left, &right, &attack);
+            step_body(scene, &hero, left, right, 0, 0, attack && !was_atk);
+            was_atk = attack;
+        } else {
+            step_body(scene, &hero, g_left, g_right, g_up, g_down, g_atk && !was_atk);
+            was_atk = g_atk;
+        }
         paint(scene, &hero, g_fb);
         InvalidateRect(hwnd, NULL, FALSE);
         UpdateWindow(hwnd);
@@ -1585,6 +1697,7 @@ static int run_dump(Scene *scene, const char *path, int frames, int hold) {
         for (i = 0; i < scene->n_foes; i++) scene->foes[i].alive = 0;
         linda = &scene->foes[scene->n_foes++];
         memset(linda, 0, sizeof(*linda));
+        linda->wall_cc = -1;
         linda->x = 120;
         linda->z = 56;
         linda->hp = 25;
@@ -1650,6 +1763,7 @@ static int run_dump(Scene *scene, const char *path, int frames, int hold) {
             fired = 1;
         }
         if (hold == 13 && i > 40 && hero.mode == 0) attack = 1;
+        if (hold == 15) route_buttons(scene, &hero, &left, &right, &attack);
         if (hold == 14 && (i == 43 || i == 132)) {
             int f;
             for (f = 0; f < scene->n_foes; f++) {
@@ -1674,7 +1788,7 @@ static int run_dump(Scene *scene, const char *path, int frames, int hold) {
     printf("x %d z %d act %d frame %d facing %d\n", hero.x_fp >> 16, hero.z_fp >> 16,
            hero.act, hero.frame, hero.facing);
     printf("cam %d lock %d nf %d\n", scene->camera, scene->lock_i, scene->n_foes);
-    if ((hold >= 5 && hold <= 9) || hold == 12 || hold == 13 || hold == 14) {
+    if ((hold >= 5 && hold <= 9) || hold == 12 || hold == 13 || hold == 14 || hold == 15) {
         printf("hp %d", hero.hp);
         for (i = 0; i < scene->n_foes; i++) printf(" %d", scene->foes[i].hp);
         printf(" x");
@@ -1705,6 +1819,7 @@ int main(int argc, char **argv) {
         if (argc > 5 && strcmp(argv[5], "onward") == 0) hold = 12;
         if (argc > 5 && strcmp(argv[5], "react") == 0) hold = 13;
         if (argc > 5 && strcmp(argv[5], "chain") == 0) hold = 14;
+        if (argc > 5 && strcmp(argv[5], "route") == 0) hold = 15;
         scene = load_scene(bin);
         if (!scene) {
             fprintf(stderr, "could not read %s\n", bin);

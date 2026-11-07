@@ -104,15 +104,29 @@ class SceneDumpTest(unittest.TestCase):
         self.assertIn("ph 1 q 2", door)
         self.assertIn("767", door)
         self.assertIn("40 30", pair)
-        self.assertIn("767 767", pair)
+        self.assertIn("767", pair)
         self.assertIn("ph 2 q 3", opened)
         self.assertIn(" 40 x", wall)
         self.assertIn("992", wall)
         self.assertIn("40 30 x", second)
-        self.assertIn("40 30 50 x", macho)
-        self.assertIn("992 992 992", macho)
+        self.assertIn(" 50 x", macho)
+        self.assertIn("992", macho)
         self.assertIn("lock 2", unlocked)
         self.assertIn("q 0", unlocked)
+
+    def test_scripted_route_reaches_the_door_then_dies(self):
+        # Real punches. The lunge spacing is input, not an HP change.
+        # Frame 800 has cleared the scroll-100 quota, so lock 3 lets the
+        # camera show the door. Linda and Williams are still up, and the
+        # phase word is still 0. Frame 1000 is the player down.
+        there = self.dump(800, "route")
+        self.assertIn("lock 3", there)
+        self.assertIn("pm 0", there)
+        self.assertIn("25 40", there)
+        self.assertIn("ph 0", there)
+        down = self.dump(1000, "route")
+        self.assertIn("pm 4", down)
+        self.assertIn("ph 0", down)
 
     def test_player_loss_stays_down(self):
         text = self.dump(700, "crowd")

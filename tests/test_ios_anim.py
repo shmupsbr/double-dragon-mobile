@@ -248,8 +248,8 @@ class IosAnimTest(unittest.TestCase):
         self.assertTrue(set(implemented) <= {0, 3, 5, 9})
         door = [row for row in done if row[1] == 9 and row[4] == 1]
         wall = [row for row in done if row[1] == 9 and row[4] == 2]
-        self.assertEqual(door, [(100, 9, 767, 64, 1, 10, 2, 6)])
-        self.assertEqual(wall, [(100, 9, 1000, 80, 2, 20, 8, 8)])
+        self.assertEqual(door, [(100, 9, 767, 64, 1, 10, 0, 1)])
+        self.assertEqual(wall, [(100, 9, 1000, 80, 2, 20, -16, 2)])
         enemies = [row for row in done if row[1] == 3]
         self.assertEqual(enemies[5][5], 4)
         self.assertEqual(enemies[5][2], 720)

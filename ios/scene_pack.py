@@ -136,7 +136,8 @@ def build(blob: bytes, obm_zip: Path) -> tuple[bytes, dict]:
         bolo_img = read_i16(blob, ZAKO_C02_IMG, 8)
         linda_img = read_i16(blob, 0x7CD5E, 8)
         macho_img = read_i16(blob, 0x85C36, 8)
-        names = {i: resource_name(blob, i) for i in set(jimmy_img[:8] + zako_img[:4] + will_img[:4] + bolo_img[:4] + linda_img[:4] + macho_img[:4] + [69])}
+        obj_img = read_i16(blob, 0x952CC, 4)
+        names = {i: resource_name(blob, i) for i in set(jimmy_img[:8] + zako_img[:4] + will_img[:4] + bolo_img[:4] + linda_img[:4] + macho_img[:4] + list(obj_img[:2]) + [69])}
         sheets = _sheets(zf, set(names.values()))
     jimmy_rects, jimmy_pat, jimmy_points = jimmy_tables(blob)
     zako_rects = read_rects(blob, ZAKO_RECT, ZAKO_PAT - ZAKO_RECT)
@@ -219,7 +220,7 @@ def build(blob: bytes, obm_zip: Path) -> tuple[bytes, dict]:
     payload += struct.pack(
         "<4sHHHiiiiiiiiiiHHHH",
         b"DD1S",
-        9,
+        10,
         480,
         320,
         info["pixel_w"],
@@ -339,6 +340,19 @@ def build(blob: bytes, obm_zip: Path) -> tuple[bytes, dict]:
             payload += struct.pack("<8i", abs_x, depth, hp, draw_sheet[draw], flags, y_word, char_id, 0)
         else:
             payload += struct.pack("<8i", 0, 0, 0, -1, 0, 0, 0, 0)
+    obj_rects = read_rects(blob, 0x95062, 0x95232 - 0x95062)
+    obj_pat = read_i16(blob, 0x95232, 0x952A0 - 0x95232)
+    obj_points = read_i16(blob, 0x952A0, 0x952CC - 0x952A0)
+    obj_img = read_i16(blob, 0x952CC, 4)
+    ogroups = [
+        _frames(blob, sheets, names, obj_rects, obj_pat, obj_points, obj_img, 0xBD720, 0xBD730),
+        _frames(blob, sheets, names, obj_rects, obj_pat, obj_points, obj_img, 0xBD730, 0xBD768),
+        _frames(blob, sheets, names, obj_rects, obj_pat, obj_points, obj_img, 0xBD768, 0xBD778),
+        _frames(blob, sheets, names, obj_rects, obj_pat, obj_points, obj_img, 0xBD778, 0xBD7AC),
+    ]
+    payload += struct.pack("<4H", *(len(g) for g in ogroups))
+    for group in ogroups:
+        put_group(group)
     meta = {
         "spawn": (spawn_x, spawn_z),
         "ground": floor_ground(blob, spawn_x, spawn_z),

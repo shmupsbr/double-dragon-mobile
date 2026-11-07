@@ -399,13 +399,14 @@ def char_def(blob: bytes, index: int) -> tuple[int, int, int]:
 
 # csStage01EncObjData placements the stage-1 kind-9 rows name.
 # phase is the applet+0x47f4 value GT_Stage01DoorReady / WallReady compare.
-# Door act 1 (ciStage01ObjAct_001) shows 2 frames, then a flag-0x10000000
-# frame; DoorOpen fires +0x144 on that flag and unlinks at STOP (frame 6).
-# Wall act 3 is four duration-2 frames; WallBreak fires on STOP, frame 8.
+# place_y is the placement Y. The sprite origin is (0xEF - place_y) - Z,
+# because +0x44 bit 1 is clear, so the drawer uses Y - Z, then the camera.
+# fire_mode 1: DoorOpen fires when the act frame carries flag 0x10000000.
+# fire_mode 2: WallBreak fires when the act reaches STOP.
 # The fence's extra 30 has no EncData2 key, and stage 1 never stores phase 3 or 4.
 OBJ_PHASE = {
-    0: (767, 64, 1, 10, 2, 6),
-    1: (1000, 80, 2, 20, 8, 8),
+    0: (767, 64, 1, 10, 0, 1),
+    1: (1000, 80, 2, 20, -16, 2),
     2: (1320, 80, 0, 30, 0, 0),
 }
 
@@ -449,8 +450,8 @@ def encounter_rows(blob: bytes) -> tuple[list[tuple], list[tuple]]:
         elif kind == 5:
             done.append((scroll, kind))
         elif kind == 9 and param in OBJ_PHASE:
-            x, z, phase, obj_extra, delay, despawn = OBJ_PHASE[param]
-            done.append((scroll, 9, x, z, phase, obj_extra, delay, despawn))
+            x, z, phase, obj_extra, place_y, fire_mode = OBJ_PHASE[param]
+            done.append((scroll, 9, x, z, phase, obj_extra, place_y, fire_mode))
         else:
             deferred.append((scroll, kind, param, extra))
     return done, deferred

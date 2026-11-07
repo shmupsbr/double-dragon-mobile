@@ -79,6 +79,7 @@ Nesta máquina o Wine 9 rodou o `scene_view.exe` de 64 bits (avisou `wine32` e s
 - `--dump 24 react` imprimiu `pm 10` com vida 94. `--dump 30 react` voltou a `pm 0`.
 - `--dump 700 crowd` imprimiu `hp 0 40 30 ... pm 4`.
 - Sem `--dump`, a janela abriu no display `:1` com os dois inimigos já na calçada. Escape fechou.
+- `--dump 800 route` chega em `lock 3` com a porta (`AREA1_OBJ`, ato 0, origem Y−Z) na tela. O Jimmy ainda está de pé. Em `--dump 1000 route` ele está no chão (`pm 4`) e a fase segue 0: a porta não abriu. A entrada `GT_EnemyWallEntry` anda em Z com −131072 por 11 quadros e mostra o ato 1; o empurrão de subtile do `FloorWallCheck` dentro da fileira do prédio não foi refeito.
 
 ```bash
 PYTHONPATH=/workspace python3 -m unittest tests.test_ios_anim tests.test_scene_dump -v

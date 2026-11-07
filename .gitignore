@@ -1,0 +1,12 @@
+# Originais do usuário: imutáveis, fora do git.
+investigation/original/
+*.apk
+*.exe
+*.so
+*.pak
+
+# Extrações de trabalho
+/tmp/
+__pycache__/
+*.pyc
+.pytest_cache/

@@ -1,6 +1,12 @@
 # Resultado — jogo original no Windows
 
-A recriação genérica do Billy continua parada. O módulo cifrado não foi recuperado. A camada de recursos em C está em `port/` e lê o `res.pak` original; não é o jogo.
+A recriação genérica do Billy continua parada. O módulo cifrado não foi recuperado. A sonda nova está em `tools/envelope_probe.py`.
+
+## Sonda do envelope (código original executado em ARM)
+
+`bootstrap.exe` em `0x7e576`–`0x7e582` grava esta máscara de 16 bytes: `fd1749545ed25ab46698c6c9f43ce891`. Em seguida `kdQueryAttribcv(0x24d)` devolve uma string C. O laço em `0x7e5e6` faz XOR dessa string, repetida até 16 bytes, sobre a máscara. Unicorn executou `0x7e500` até `0x90f98`: com atributo vazio a máscara sai intacta; com a string sintética `FIXTURE-DEVICE!` (não é um id deste aparelho) sai `bb5e11000b801f9922dd9080b779c9d7`. Os dois casos entram em `0x90f98` com o caminho `/data/keystore.dat` e 16 bytes. Isso é senha do keystore, não a chave do exe.
+
+O módulo em memória vira `std::istrstream(char*, int)` (`0x56e54`). Antes da cifra, `seekg` recebe um `fpos` zerado em `sp+0x128`. A leitura seguinte é `istream::read` de 16 bytes (`0x580e4`). Um único teste AES-GCM, chave = a máscara crua, IV = os 16 primeiros bytes do exe, tag = os 16 últimos, não autentica. O exe não vira ELF. O tamanho da chave GCM que viria do rights object continua sem campo lido no arquivo.
 
 Esta passagem remontou o `res.pak` original e refez o caminho do loader em cima dos bytes, sem rede e sem executar o binário do jogo.
 

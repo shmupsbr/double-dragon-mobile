@@ -89,12 +89,22 @@ typedef struct {
     Frame *zgo;
     Frame *zlio;
     Frame *zdio;
+    Frame *lidle;
+    Frame *lwalk;
+    Frame *lpunch;
+    Frame *ldown;
+    Frame *lland;
+    Frame *lfall;
+    Frame *lget;
+    Frame *llie;
+    Frame *ldie;
     uint8_t *floor_id;
     uint8_t fmt5[256];
-    int n_pending;
-    Foe pending[4];
-    int camera, lock_i, quota, spawned_next;
-    Foe foes[8];
+    int ln[9];
+    int n_rows, row_i, trigger;
+    int rows[24][8];
+    int camera, lock_i, quota;
+    Foe foes[12];
 } Scene;
 
 static int rd(FILE *fp, void *dst, size_t n) {
@@ -160,6 +170,8 @@ static Frame *load_frames(FILE *fp, int count) {
     return frames;
 }
 
+static void consume_rows(Scene *scene);
+
 static Scene *load_scene(const char *path) {
     FILE *fp = fopen(path, "rb");
     char magic[4];
@@ -169,7 +181,7 @@ static Scene *load_scene(const char *path) {
     if (!fp) return NULL;
     scene = calloc(1, sizeof(Scene));
     if (!scene || !rd(fp, magic, 4) || memcmp(magic, "DD1S", 4) != 0) goto fail;
-    if (!ru16(fp, &version) || version != 6) goto fail;
+    if (!ru16(fp, &version) || version != 7) goto fail;
     if (!ru16(fp, &vw) || !ru16(fp, &vh)) goto fail;
     if (!ri32(fp, &scene->map_w) || !ri32(fp, &scene->map_h)) goto fail;
     if (!ri32(fp, &scene->spawn_x) || !ri32(fp, &scene->spawn_z)) goto fail;
@@ -192,7 +204,7 @@ static Scene *load_scene(const char *path) {
         !rs8(fp, &scene->hz) || !ru8(fp, &scene->hzs))
         goto fail;
     if (!rs16(fp, &scene->grab_x) || !rs16(fp, &scene->grab_z)) goto fail;
-    if (!ri32(fp, &scene->n_foes) || scene->n_foes < 0 || scene->n_foes > 8) goto fail;
+    if (!ri32(fp, &scene->n_foes) || scene->n_foes < 0 || scene->n_foes > 12) goto fail;
     for (vw = 0; vw < scene->n_foes; vw++) {
         if (!ri32(fp, &scene->foes[vw].x) || !ri32(fp, &scene->foes[vw].z) || !ri32(fp, &scene->foes[vw].hp) ||
             !ri32(fp, &scene->foes[vw].sheet))
@@ -266,25 +278,39 @@ static Scene *load_scene(const char *path) {
     scene->zgo = load_frames(fp, scene->n_zgw);
     scene->zlio = load_frames(fp, scene->n_zliw);
     scene->zdio = load_frames(fp, scene->n_zdiw);
+    for (vw = 0; vw < 9; vw++) {
+        if (!ru16(fp, &scene->ln[vw])) goto fail;
+    }
+    scene->lidle = load_frames(fp, scene->ln[0]);
+    scene->lwalk = load_frames(fp, scene->ln[1]);
+    scene->lpunch = load_frames(fp, scene->ln[2]);
+    scene->ldown = load_frames(fp, scene->ln[3]);
+    scene->lland = load_frames(fp, scene->ln[4]);
+    scene->lfall = load_frames(fp, scene->ln[5]);
+    scene->lget = load_frames(fp, scene->ln[6]);
+    scene->llie = load_frames(fp, scene->ln[7]);
+    scene->ldie = load_frames(fp, scene->ln[8]);
     ground_n = (size_t)scene->floor_w * scene->floor_h;
     scene->floor_id = malloc(ground_n);
     if (!scene->floor_id || !rd(fp, scene->floor_id, ground_n) || !rd(fp, scene->fmt5, 256)) goto fail;
-    if (!ri32(fp, &scene->n_pending) || scene->n_pending < 0 || scene->n_pending > 4) goto fail;
-    for (vw = 0; vw < scene->n_pending; vw++) {
-        if (!ri32(fp, &scene->pending[vw].x) || !ri32(fp, &scene->pending[vw].z) ||
-            !ri32(fp, &scene->pending[vw].hp) || !ri32(fp, &scene->pending[vw].sheet))
-            goto fail;
+    if (!ri32(fp, &scene->n_rows) || scene->n_rows < 0 || scene->n_rows > 24) goto fail;
+    for (vw = 0; vw < scene->n_rows; vw++) {
+        int k;
+        for (k = 0; k < 8; k++) {
+            if (!ri32(fp, &scene->rows[vw][k])) goto fail;
+        }
     }
-    /* Kind 0 at scroll 0 stores quota 2 and threshold 1. Lock index starts at 0. */
-    scene->quota = 2;
+    scene->trigger = -1;
     if (!scene->idle || !scene->walk || !scene->bash || !scene->will || !scene->p28 || !scene->p29 ||
         !scene->p45 || !scene->zwb || !scene->zww || !scene->zpb || !scene->zpw || !scene->zdb ||
         !scene->zdw || !scene->jd || !scene->zlb || !scene->zlw || !scene->jl || !scene->zfb ||
         !scene->zfw || !scene->zgb || !scene->zgw || !scene->jf || !scene->jg || !scene->zlib ||
         !scene->zliw || !scene->jlie || !scene->zdib || !scene->zdiw || !scene->jdie || !scene->bolo ||
         !scene->zwo || !scene->zpo || !scene->zdo || !scene->zlo || !scene->zfo || !scene->zgo ||
-        !scene->zlio || !scene->zdio)
+        !scene->zlio || !scene->zdio || !scene->lidle || !scene->lwalk || !scene->lpunch ||
+        !scene->ldown || !scene->lland || !scene->lfall || !scene->lget || !scene->llie || !scene->ldie)
         goto fail;
+    consume_rows(scene);
     fclose(fp);
     return scene;
 fail:
@@ -478,23 +504,26 @@ static int scaled_damage(int raw, int defender_byte) {
 /* kind: 0 idle, 1 walk, 2 punch, 3 down, 4 land, 5 fall, 6 lie, 7 get, 8 die.
    Sheet 0 is draw set 6 (BASH), 1 is draw set 7 (WILLIAMS), 2 is draw set 8 (BOLO). */
 static void sheet_anim(const Scene *scene, int sheet, int kind, const Frame **frames, int *n) {
-    const Frame *table[3][9] = {
+    const Frame *table[4][9] = {
         {scene->bash, scene->zwb, scene->zpb, scene->zdb, scene->zlb, scene->zfb, scene->zlib, scene->zgb, scene->zdib},
         {scene->will, scene->zww, scene->zpw, scene->zdw, scene->zlw, scene->zfw, scene->zliw, scene->zgw, scene->zdiw},
         {scene->bolo, scene->zwo, scene->zpo, scene->zdo, scene->zlo, scene->zfo, scene->zlio, scene->zgo, scene->zdio},
+        {scene->lidle, scene->lwalk, scene->lpunch, scene->ldown, scene->lland, scene->lfall, scene->llie, scene->lget, scene->ldie},
     };
-    const int counts[3][9] = {
+    const int counts[4][9] = {
         {scene->n_bash, scene->n_zwb, scene->n_zpb, scene->n_zdb, scene->n_zlb, scene->n_zfb, scene->n_zlib, scene->n_zgb, scene->n_zdib},
         {scene->n_will, scene->n_zww, scene->n_zpw, scene->n_zdw, scene->n_zlw, scene->n_zfw, scene->n_zliw, scene->n_zgw, scene->n_zdiw},
         {scene->n_will, scene->n_zww, scene->n_zpw, scene->n_zdw, scene->n_zlw, scene->n_zfw, scene->n_zliw, scene->n_zgw, scene->n_zdiw},
+        {scene->ln[0], scene->ln[1], scene->ln[2], scene->ln[3], scene->ln[4], scene->ln[5], scene->ln[7], scene->ln[6], scene->ln[8]},
     };
-    int bank = sheet == 2 ? 2 : sheet == 1 ? 1 : 0;
+    int bank = sheet >= 0 && sheet <= 3 ? sheet : 0;
     if (kind < 0 || kind > 8) kind = 0;
     *frames = table[bank][kind];
     *n = counts[bank][kind];
 }
 
 static int foe_kind(const Foe *foe) {
+    if (foe->mode == 9 || foe->mode == 5) return 5;
     if (foe->mode == 8) return 8;
     if (foe->mode == 7) return 6;
     if (foe->mode == 6) return 7;
@@ -542,7 +571,7 @@ static void hurt_hero(Scene *scene, Body *hero, int attacker_x) {
 static void foe_hits_hero(Scene *scene, Foe *foe, Body *hero) {
     int px, ax, left, depth, top, hx, hy, hz;
     const Frame *pose;
-    if (hero->mode != 0 || foe->hit) return;
+    if (hero->mode != 0 || foe->hit || foe->sheet == 3) return;
     pose = foe_pose(scene, foe);
     if ((pose->flags & 0x28) != 8) return;
     px = foe->x_fp >> 16;
@@ -591,6 +620,8 @@ static int slide_axis(const Scene *scene, int fixed, int from, int to, int verti
     return cur;
 }
 
+static void push_mover(Scene *scene, Body *hero, int *x_fp, int *z_fp, int facing, int old_x, int old_z, int skip);
+
 static void slide_body(const Scene *scene, int *x_fp, int *z_fp, int old_x, int old_z) {
     int raw_x = *x_fp >> 16;
     int raw_z = *z_fp >> 16;
@@ -609,15 +640,54 @@ static void slide_body(const Scene *scene, int *x_fp, int *z_fp, int old_x, int 
 static const int LOCK_MIN[8] = {0, 0, 100, 100, 687, 687, 1055, 0};
 static const int LOCK_MAX[8] = {0, 191, 191, 687, 687, 1055, 1055, 1072};
 
+static void spawn_enemy(Scene *scene, int x, int z, int hp, int sheet, int flags, int y_word) {
+    Foe *foe;
+    if (flags & 1) x = scene->camera - 20;
+    if (flags & 2) x = scene->camera + VIEW_W + 20;
+    if (scene->n_foes >= 12) return;
+    foe = &scene->foes[scene->n_foes++];
+    memset(foe, 0, sizeof(*foe));
+    foe->x = x;
+    foe->z = z;
+    foe->hp = hp;
+    foe->sheet = sheet;
+    foe->alive = 1;
+    foe->counts = (flags & 0x20) ? 1 : 0;
+    foe->x_fp = x << 16;
+    foe->z_fp = z << 16;
+    foe->y_fp = 0xEF << 16;
+    /* GT_CheckFloor: FloorGroundCheck returned 0, so it stores this fall
+       and ActionSets a drop script. Act 12 is the traced damage fall. */
+    if (y_word != 0) {
+        foe->y_fp = (0xEF - y_word) << 16;
+        foe->yv = -262144;
+        foe->ya = 212992;
+        foe->mode = 9;
+    }
+}
+
 static void note_ko(Scene *scene, Foe *foe) {
     if (!foe->counts) return;
     foe->counts = 0;
     if (scene->quota > 0) scene->quota--;
-    if (scene->quota > 0) return;
-    /* EncData2 key 1 and key 0 are both a kind-5 lock increment. */
-    if (scene->lock_i == 0) scene->lock_i = 1;
-    else if (scene->spawned_next && scene->lock_i == 2) scene->lock_i = 3;
+    if (scene->quota > 0 || scene->trigger < 0) return;
+    /* EncData2 keys 0 and 1 are a kind-5 lock step. Key 1 also creates an
+       item; that kind-4 row is deferred. Keys 2 and 3 only reset a quota
+       whose extra enemies come from kind-9 objects, which are deferred. */
+    if (scene->trigger == 0 || scene->trigger == 1) scene->lock_i++;
+    else if (scene->trigger == 2) {
+        scene->quota = 2;
+        scene->trigger = 3;
+        return;
+    } else if (scene->trigger == 3) {
+        scene->quota = 3;
+        scene->trigger = 4;
+        return;
+    } else if (scene->trigger == 4) scene->lock_i++;
+    scene->trigger = -1;
 }
+
+static void consume_rows(Scene *scene);
 
 static void update_scroll(Scene *scene, const Body *hero) {
     int x = hero->x_fp >> 16;
@@ -640,23 +710,21 @@ static void update_scroll(Scene *scene, const Body *hero) {
     if (cam > hi) cam = hi;
     if (cam < 0) cam = 0;
     scene->camera = cam;
-    if (scene->spawned_next || cam < 100 || scene->n_pending <= 0) return;
-    /* The scroll-100 kind-5 row advances the lock, then the three kind-3 rows spawn. */
-    scene->spawned_next = 1;
-    scene->lock_i = 2;
-    scene->quota = scene->n_pending;
-    for (i = 0; i < scene->n_pending && scene->n_foes < 8; i++) {
-        Foe *foe = &scene->foes[scene->n_foes++];
-        memset(foe, 0, sizeof(*foe));
-        foe->x = scene->pending[i].x;
-        foe->z = scene->pending[i].z;
-        foe->hp = scene->pending[i].hp;
-        foe->sheet = scene->pending[i].sheet;
-        foe->alive = 1;
-        foe->counts = 1;
-        foe->x_fp = foe->x << 16;
-        foe->z_fp = foe->z << 16;
-        foe->y_fp = 0xEF << 16;
+    consume_rows(scene);
+}
+
+static void consume_rows(Scene *scene) {
+    int cam = scene->camera;
+    while (scene->row_i < scene->n_rows && scene->rows[scene->row_i][0] <= cam) {
+        int *row = scene->rows[scene->row_i++];
+        if (row[1] == 0) {
+            scene->quota = row[2];
+            scene->trigger = row[3];
+        } else if (row[1] == 5) {
+            if (scene->lock_i < 7) scene->lock_i++;
+        } else if (row[1] == 3) {
+            spawn_enemy(scene, row[2], row[3], row[4], row[5], row[6], row[7]);
+        }
     }
 }
 
@@ -680,10 +748,18 @@ static void step_foes(Scene *scene, Body *hero) {
                 foe->x_fp += foe->vx;
                 slide_body(scene, &foe->x_fp, &foe->z_fp, ox, oz);
             }
-            if (foe->mode == 2 || foe->mode == 5 || foe->mode == 3) {
+            if (foe->mode == 9 || foe->mode == 2 || foe->mode == 5 || foe->mode == 3) {
                 foe->y_fp += foe->yv;
                 foe->yv += foe->ya;
-                if (foe->mode == 2 && foe->yv > 0) {
+                if (foe->mode == 9 && foe->y_fp >= (0xEF << 16)) {
+                    foe->y_fp = 0xEF << 16;
+                    foe->yv = 0;
+                    foe->ya = 0;
+                    foe->mode = 0;
+                    foe->frame = 0;
+                    foe->shown = 0;
+                    foe->timer = 0;
+                } else if (foe->mode != 9 && foe->mode == 2 && foe->yv > 0) {
                     foe->mode = 5;
                     foe->frame = 0;
                     foe->shown = 0;
@@ -812,6 +888,7 @@ static void step_foes(Scene *scene, Body *hero) {
             foe->x_fp += foe->vx;
             foe->z_fp += foe->vz;
             slide_body(scene, &foe->x_fp, &foe->z_fp, ox, oz);
+            push_mover(scene, hero, &foe->x_fp, &foe->z_fp, foe->facing, ox, oz, i);
         }
         foe->x = foe->x_fp >> 16;
         foe->z = foe->z_fp >> 16;
@@ -825,6 +902,51 @@ static void step_foes(Scene *scene, Body *hero) {
                 foe->frame = (foe->frame + 1) % n;
                 foe->timer = foe_pose(scene, foe)->duration;
             }
+        }
+    }
+}
+
+static void push_box(int x, int z, int facing, int *left, int *right, int *top, int *bot) {
+    /* ciZakoC00PushData index 1, also D00 index 1: (-17, -65, 29, 64, -2, 5). */
+    int xoff = -17, w = 29;
+    *left = facing ? x - xoff - w : x + xoff;
+    *right = *left + w;
+    *top = z - 2;
+    *bot = *top + 5;
+}
+
+static int push_overlap(int a0, int a1, int b0, int b1) {
+    return a0 < b1 && b0 < a1;
+}
+
+static void push_mover(Scene *scene, Body *hero, int *x_fp, int *z_fp, int facing, int old_x, int old_z, int skip) {
+    int x = *x_fp >> 16, z = *z_fp >> 16;
+    int l, r, t, b, i;
+    push_box(x, z, facing, &l, &r, &t, &b);
+    for (i = 0; i < scene->n_foes; i++) {
+        Foe *foe = &scene->foes[i];
+        int fl, fr, ft, fb;
+        if (i == skip || !foe->alive || foe->mode >= 2) continue;
+        push_box(foe->x, foe->z, foe->facing, &fl, &fr, &ft, &fb);
+        if (!push_overlap(l, r, fl, fr) || !push_overlap(t, b, ft, fb)) continue;
+        /* Keep the mover on the near side of the other push box. */
+        if (x != old_x) {
+            x = old_x;
+            *x_fp = old_x << 16;
+        }
+        if (z != old_z) {
+            z = old_z;
+            *z_fp = old_z << 16;
+        }
+        break;
+    }
+    if (hero && skip >= 0 && hero->mode < 2) {
+        int hl, hr, ht, hb;
+        push_box(hero->x_fp >> 16, hero->z_fp >> 16, hero->facing, &hl, &hr, &ht, &hb);
+        push_box(x, z, facing, &l, &r, &t, &b);
+        if (push_overlap(l, r, hl, hr) && push_overlap(t, b, ht, hb)) {
+            if (x != old_x) *x_fp = old_x << 16;
+            if (z != old_z) *z_fp = old_z << 16;
         }
     }
 }
@@ -964,6 +1086,7 @@ static void step_body(Scene *scene, Body *body, int left, int right, int up, int
         body->x_fp += body->vx;
         body->z_fp += body->vz;
         slide_body(scene, &body->x_fp, &body->z_fp, ox, oz);
+        push_mover(scene, NULL, &body->x_fp, &body->z_fp, body->facing, ox, oz, -1);
     }
 
     if (body->punch_act) {
@@ -1018,7 +1141,7 @@ static void paint(Scene *scene, const Body *hero, uint8_t *fb) {
     /* DrawZSort compares +0x80 (Z). A larger Z is drawn first.
        Equal Z falls through to the task id, and the lower id is drawn later. */
     {
-        int z[5], id[5], kind[5], n = 0, a, b;
+        int z[16], id[16], kind[16], n = 0, a, b;
         z[n] = hero->z_fp >> 16;
         id[n] = 0;
         kind[n] = -1;
@@ -1270,7 +1393,7 @@ static int run_dump(Scene *scene, const char *path, int frames, int hold) {
             }
             if (!close) right = 1;
         }
-        if (hold == 8 && hero.mode == 0) {
+        if ((hold == 8 || hold == 12) && hero.mode == 0) {
             int f, best = 100000, gap = 0;
             for (f = 0; f < scene->n_foes; f++) {
                 int d;
@@ -1285,6 +1408,7 @@ static int run_dump(Scene *scene, const char *path, int frames, int hold) {
             if (gap > 36) right = 1;
             if (gap < -36) left = 1;
             if (best < 70 && hero.punch_act == 0) attack = 1;
+            if (hold == 12 && best == 100000) right = 1;
         }
         if (hold == 5 && !fired && (hero.x_fp >> 16) >= 430) {
             attack = 1;
@@ -1304,7 +1428,7 @@ static int run_dump(Scene *scene, const char *path, int frames, int hold) {
     printf("x %d z %d act %d frame %d facing %d\n", hero.x_fp >> 16, hero.z_fp >> 16,
            hero.act, hero.frame, hero.facing);
     printf("cam %d lock %d nf %d\n", scene->camera, scene->lock_i, scene->n_foes);
-    if (hold >= 5 && hold <= 9) {
+    if ((hold >= 5 && hold <= 9) || hold == 12) {
         printf("hp %d", hero.hp);
         for (i = 0; i < scene->n_foes; i++) printf(" %d", scene->foes[i].hp);
         printf(" x");
@@ -1331,6 +1455,7 @@ int main(int argc, char **argv) {
         if (argc > 5 && strcmp(argv[5], "fight") == 0) hold = 7;
         if (argc > 5 && strcmp(argv[5], "stand") == 0) hold = 8;
         if (argc > 5 && strcmp(argv[5], "crowd") == 0) hold = 9;
+        if (argc > 5 && strcmp(argv[5], "onward") == 0) hold = 12;
         scene = load_scene(bin);
         if (!scene) {
             fprintf(stderr, "could not read %s\n", bin);

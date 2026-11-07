@@ -32,10 +32,10 @@ from ios.macho_anim import (
     attack_record,
     billy_move,
     char_def,
+    encounter_rows,
     first_wave,
     floor_bytes,
     floor_ground,
-    scroll_enemies,
     hero_hp,
     hurt_record,
     zako_attack_record,
@@ -132,7 +132,8 @@ def build(blob: bytes, obm_zip: Path) -> tuple[bytes, dict]:
         zako_img = read_i16(blob, ZAKO_C00_IMG, 8)
         will_img = read_i16(blob, ZAKO_C01_IMG, 8)
         bolo_img = read_i16(blob, ZAKO_C02_IMG, 8)
-        names = {i: resource_name(blob, i) for i in set(jimmy_img[:8] + zako_img[:4] + will_img[:4] + bolo_img[:4] + [69])}
+        linda_img = read_i16(blob, 0x7CD5E, 8)
+        names = {i: resource_name(blob, i) for i in set(jimmy_img[:8] + zako_img[:4] + will_img[:4] + bolo_img[:4] + linda_img[:4] + [69])}
         sheets = _sheets(zf, set(names.values()))
     jimmy_rects, jimmy_pat, jimmy_points = jimmy_tables(blob)
     zako_rects = read_rects(blob, ZAKO_RECT, ZAKO_PAT - ZAKO_RECT)
@@ -183,6 +184,18 @@ def build(blob: bytes, obm_zip: Path) -> tuple[bytes, dict]:
     bget = _frames(blob, sheets, names, zako_rects, zako_pat, zako_points, bolo_img, 0xB24DC, 0xB2514)
     blie = _frames(blob, sheets, names, zako_rects, zako_pat, zako_points, bolo_img, 0xB24BC, 0xB24DC)
     bdie = _frames(blob, sheets, names, zako_rects, zako_pat, zako_points, bolo_img, 0xB2618, 0xB2638)
+    linda_rects = read_rects(blob, 0x7B97C, 0x7C88C - 0x7B97C)
+    linda_pat = read_i16(blob, 0x7C88C, 0x7CCA8 - 0x7C88C)
+    linda_points = read_i16(blob, 0x7CCA8, 0x7CD5E - 0x7CCA8)
+    lidle = _frames(blob, sheets, names, linda_rects, linda_pat, linda_points, linda_img, 0xB3158, 0xB319C)
+    lwalk = _frames(blob, sheets, names, linda_rects, linda_pat, linda_points, linda_img, 0xB319C, 0xB31EC)
+    lpunch = _frames(blob, sheets, names, linda_rects, linda_pat, linda_points, linda_img, 0xB3A74, 0xB3BA4)
+    ldown = _frames(blob, sheets, names, linda_rects, linda_pat, linda_points, linda_img, 0xB33A4, 0xB33C4)
+    lland = _frames(blob, sheets, names, linda_rects, linda_pat, linda_points, linda_img, 0xB3444, 0xB3470)
+    lfall = _frames(blob, sheets, names, linda_rects, linda_pat, linda_points, linda_img, 0xB33E4, 0xB3404)
+    lget = _frames(blob, sheets, names, linda_rects, linda_pat, linda_points, linda_img, 0xB3490, 0xB34C8)
+    llie = _frames(blob, sheets, names, linda_rects, linda_pat, linda_points, linda_img, 0xB3470, 0xB3490)
+    ldie = _frames(blob, sheets, names, linda_rects, linda_pat, linda_points, linda_img, 0xB35CC, 0xB35EC)
     wave = first_wave(blob)
     zatk = zako_attack_record(blob, 6)
     zvx, zvz = zako_move(blob)
@@ -203,7 +216,7 @@ def build(blob: bytes, obm_zip: Path) -> tuple[bytes, dict]:
     payload += struct.pack(
         "<4sHHHiiiiiiiiiiHHHH",
         b"DD1S",
-        6,
+        7,
         480,
         320,
         info["pixel_w"],
@@ -226,13 +239,10 @@ def build(blob: bytes, obm_zip: Path) -> tuple[bytes, dict]:
     payload += struct.pack("<7h", close[0], close[1], close[2], close[3], close[4], close[5], close[6])
     payload += struct.pack("<6b", *hurt)
     payload += struct.pack("<2h", 90, 10)
-    payload += struct.pack("<i", len(wave))
-    # Draw-set image slots from the installer at 0x100c8/0x100ea/0x1010c:
-    # 6 BASH, 7 WILLIAMS, 8 BOLO. Char 12 is draw 8, so the opening tall foe is Bolo.
-    draw_sheet = {6: 0, 7: 1, 8: 2}
-    for _param, _char, x, z, hp in wave:
-        _typ, draw, _hp = char_def(blob, _char)
-        payload += struct.pack("<4i", x, z, hp, draw_sheet[draw])
+    # Foes are spawned by the row walker, not listed up front.
+    payload += struct.pack("<i", 0)
+    # Installer image slots: 4 LINDA, 6 BASH, 7 WILLIAMS, 8 BOLO.
+    draw_sheet = {4: 3, 6: 0, 7: 1, 8: 2}
     payload += struct.pack(
         "<6H4i7h",
         len(zwalk_b), len(zwalk_w), len(zpunch_b), len(zpunch_w), len(zdown_b), len(jdown),
@@ -266,13 +276,26 @@ def build(blob: bytes, obm_zip: Path) -> tuple[bytes, dict]:
         bidle, bwalk, bpunch, bdown, bland, bfall, bget, blie, bdie,
     ):
         put_group(group)
+    payload += struct.pack(
+        "<9H", len(lidle), len(lwalk), len(lpunch), len(ldown), len(lland),
+        len(lfall), len(lget), len(llie), len(ldie),
+    )
+    for group in (lidle, lwalk, lpunch, ldown, lland, lfall, lget, llie, ldie):
+        put_group(group)
     tiles, fmt5 = floor_bytes(blob)
     payload += tiles
     payload += fmt5
-    later = scroll_enemies(blob, 100)
-    payload += struct.pack("<i", len(later))
-    for _param, _char, x, z, hp, draw in later:
-        payload += struct.pack("<4i", x, z, hp, draw_sheet[draw])
+    rows, _deferred = encounter_rows(blob)
+    payload += struct.pack("<i", len(rows))
+    for row in rows:
+        kind = row[1]
+        if kind == 3:
+            _scroll, _k, x, z, hp, draw, flags, y_word, entry, _char = row
+            payload += struct.pack("<8i", row[0], 3, x, z, hp, draw_sheet[draw], flags, y_word)
+        elif kind == 0:
+            payload += struct.pack("<8i", row[0], 0, row[2], row[3], 0, 0, 0, 0)
+        else:
+            payload += struct.pack("<8i", row[0], 5, 0, 0, 0, 0, 0, 0)
     meta = {
         "spawn": (spawn_x, spawn_z),
         "ground": floor_ground(blob, spawn_x, spawn_z),

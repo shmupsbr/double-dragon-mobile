@@ -19,6 +19,7 @@ from ios.macho_anim import (
     encryption,
     ENC_LIST,
     char_def,
+    encounter_rows,
     first_wave,
     floor_bytes,
     scroll_enemies,
@@ -218,6 +219,22 @@ class IosAnimTest(unittest.TestCase):
             (8, 656, 32, 40, 7),
             (4, 612, 8, 30, 6),
         ])
+
+    def test_deferred_rows_stay_out_of_the_dispatch(self):
+        done, deferred = encounter_rows(self.blob)
+        kinds = {(row[0], row[1]) for row in deferred}
+        self.assertIn((0, 4), kinds)
+        self.assertIn((0, 9), kinds)
+        self.assertIn((100, 9), kinds)
+        self.assertIn((687, 9), kinds)
+        self.assertIn((1055, 10), kinds)
+        implemented = [row[1] for row in done]
+        self.assertTrue(set(implemented) <= {0, 3, 5})
+        enemies = [row for row in done if row[1] == 3]
+        self.assertEqual(enemies[5][5], 4)
+        self.assertEqual(enemies[5][2], 720)
+        self.assertEqual(enemies[7][2], 880)
+        self.assertEqual(enemies[8][2], 912)
 
     def test_bash_act_uses_its_own_patterns(self):
         frames, opcode = act_span(self.blob, ZAKO_C00_ACT0, ZAKO_C00_ACT0 + 0x5C)

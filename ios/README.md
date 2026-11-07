@@ -53,7 +53,7 @@ O byte `+0x11` desses socos é 5. `DamagedCheck` instala `GT_FukiUpDamage` (`0x3
 
 `FloorWallCheck` (`0x12c28`) empurra o eixo que entrou numa célula cujo height passa da elevação dos pés. No estágio 1 o registro 0 vale 99999 em todo o subtile (formato 0 é zero), e a fileira z 64..79 é esse registro na calçada inicial. Z 63 passa; Z 64 não. O registro 2, formato 5, só aparece mais adiante.
 
-A câmera é `MapScrollCheck` (`0x124b0`). Com um jogador ela segue a margem de `cStage01ScrollPush`: esquerda 80, direita 240, no máximo 12 px por quadro. Depois o índice em `+0x47d4` escolhe `csStage01ScrollLock`. O registro 0 trava a câmera em 0. O registro 1 deixa ir até 191. `ScrollEncountCheck` (`0x181ac`), no modo byte 0, consome a fila enquanto o X do registro é ≤ câmera. A fileira de X 100 só entra depois que a câmera anda. Ela anda quando os dois inimigos com o bit `0x20` terminam `GT_KO` e o gatilho 1 de `csStage01EncData2` soma o índice. Essa fileira traz dois Williams (char 8, draw 7, X 612 e 656) e um Bash (char 4, X 612), e o kind 5 do mesmo X sobe o lock para o registro 2 (mínimo 100, máximo 191). O RNG continua sendo MT com semente 1. A fileira de scroll 303 não está nesta cena.
+A câmera é `MapScrollCheck` (`0x124b0`). Com um jogador ela segue a margem de `cStage01ScrollPush`: esquerda 80, direita 240, no máximo 12 px por quadro. Depois o índice em `+0x47d4` escolhe `csStage01ScrollLock`. O registro 0 trava a câmera em 0. O registro 1 deixa ir até 191. `ScrollEncountCheck` (`0x181ac`), no modo byte 0, consome a fila enquanto o X do registro é ≤ câmera. A fileira de X 100 só entra depois que a câmera anda. Ela anda quando os dois inimigos com o bit `0x20` terminam `GT_KO` e o gatilho 1 de `csStage01EncData2` soma o índice. Depois do lock 2 a câmera chega a 303 e nascem a Linda (char 1, draw 4, X 720, vida 25) e um Williams (X 752). O word +8 desses registros é 256 ou 288, então `GT_CheckFloor` os solta com velocidade Y −262144. Em 687 nascem um Bash (X 880) e um Bolo (X 912) e o kind 5 trava a câmera no registro 4. Kind 4 (item), kind 9 (objeto) e kind 10 ficam de fora: o objeto de 687 é o que alimentaria os inimigos do gatilho 2, então a câmera não passa de 687. O empurrão usa a caixa 1 de `ciZakoC00PushData`, igual à da Linda. O soco da Linda tem reaction 2, que não é o arco já traçado, então o golpe dela não aplica dano. RNG segue com semente 1.
 
 ## Como rodar
 
@@ -70,12 +70,13 @@ make -C ios linux
 make -C ios windows
 ```
 
-O char 12 da primeira fileira é draw 8, `BOLO.obm`. O char 4 é draw 6, `BASH.obm`. `J` dispara o índice 4. `--dump 80 right` anda até x 278 com `cam 0 lock 0`. `--dump 40 up` para em z 63. `--dump 485 stand` já desligou os dois e a câmera está em 36, lock 1. `--dump 490 stand` ainda está em câmera 96, dois inimigos. `--dump 492 stand` passa de 100 e nasce a fileira `(612,56)`, `(656,32)`, `(612,8)`.
+O char 12 da primeira fileira é draw 8, `BOLO.obm`. O char 4 é draw 6, `BASH.obm`. `J` dispara o índice 4. `--dump 80 right` anda até x 278 com `cam 0 lock 0`. `--dump 4 up` para em z 63. `--dump 307 stand` ainda está em câmera 96. `--dump 308 stand` passa de 100 e nasce `(612,56)`, `(656,32)`, `(612,8)`. `--dump 720 stand` traz a Linda e o Williams em 303. `--dump 1028 onward` chega em 687, lock 4, com Bash e Bolo em `(880,56)` e `(912,56)`.
 
 Nesta máquina o Wine 9 rodou o `scene_view.exe` de 64 bits (avisou `wine32` e seguiu):
 
 - `--dump 40 up` parou em z 63.
-- `--dump 492 stand` imprimiu `x 344 376 612 656 612` e `cam 120 lock 2 nf 5`.
+- `--dump 308 stand` imprimiu `612 656 612` e `cam 108 lock 2 nf 5`.
+- `--dump 1028 onward` imprimiu `880 912` e `cam 687 lock 4 nf 9`.
 - `--dump 700 crowd` imprimiu `hp 0 40 30 ... pm 4`.
 - Sem `--dump`, a janela abriu no display `:1` com os dois inimigos já na calçada. Escape fechou.
 

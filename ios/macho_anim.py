@@ -379,6 +379,36 @@ def char_def(blob: bytes, index: int) -> tuple[int, int, int]:
     return words[0], words[1], words[3]
 
 
+def encounter_rows(blob: bytes) -> tuple[list[tuple], list[tuple]]:
+    """Split csStage01EncData into rows this scene can dispatch and rows it cannot.
+
+    Implemented kinds are 0 (quota), 3 (enemy) and 5 (scroll-lock increment).
+    Kind 4 is EncountItemCreate, kind 9 is EncountObjCreate, kind 10 is the
+    timed task at the end of the list. Those stay in the deferred list.
+    """
+    done = []
+    deferred = []
+    raw = _load(blob, ENC_LIST, 16 * 40)
+    for i in range(40):
+        scroll, kind, param, extra = struct.unpack_from("<4i", raw, i * 16)
+        if scroll < 0:
+            break
+        if kind == 3:
+            char_id, abs_x, y_word, depth, entry, flags = struct.unpack_from(
+                "<6i", _load(blob, ENC_ENEMY + param * 24, 24)
+            )
+            _typ, draw, hp = char_def(blob, char_id)
+            done.append((scroll, kind, abs_x, depth, hp, draw, flags, y_word, entry, char_id))
+        elif kind == 0:
+            trigger = extra if extra < 65535 else -1
+            done.append((scroll, kind, param, trigger))
+        elif kind == 5:
+            done.append((scroll, kind))
+        else:
+            deferred.append((scroll, kind, param, extra))
+    return done, deferred
+
+
 def scroll_enemies(blob: bytes, scroll_x: int) -> list[tuple[int, int, int, int, int, int]]:
     """Kind-3 rows of csStage01EncData whose scroll word equals scroll_x.
 

@@ -22,4 +22,4 @@ Os originais em `investigation/original/` ficam de fora do git.
 
 Não há build Windows do jogo. O binário do jogo é ARM e ainda está cifrado. Um emulador Android no Windows seria a rota honesta para o runtime original, e só depois que o cache estiver completo. Isso não foi executado aqui.
 
-O leitor do pak continua em `port/`. A fatia jogável da primeira rua está no mesmo diretório: `ddslum`, com controles e limites em `port/RECONSTRUCAO.md`. O módulo cifrado segue sem recuperação: `docs/RESULTADO.md`.
+A base de implementação passou a ser o `ddiPhone` de iOS, com `cryptid` 0. As tabelas de pose estão em `ios/`. O `ddslum` em `port/` é o protótipo antigo, com recortes errados, e não vale como animação original. O módulo Android continua cifrado: `docs/RESULTADO.md`.

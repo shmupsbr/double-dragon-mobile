@@ -1,6 +1,8 @@
 # Resultado — jogo original no Windows
 
-A recriação continua parada. Esta passagem remontou o `res.pak` original e refez o caminho do loader em cima dos bytes, sem rede e sem executar o binário do jogo.
+A recriação genérica do Billy continua parada. O módulo cifrado não foi recuperado. A camada de recursos em C está em `port/` e lê o `res.pak` original; não é o jogo.
+
+Esta passagem remontou o `res.pak` original e refez o caminho do loader em cima dos bytes, sem rede e sem executar o binário do jogo.
 
 ## O que foi conferido
 

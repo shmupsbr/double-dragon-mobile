@@ -22,4 +22,4 @@ Os originais em `investigation/original/` ficam de fora do git.
 
 Não há build Windows do jogo. O binário do jogo é ARM e ainda está cifrado. Um emulador Android no Windows seria a rota honesta para o runtime original, e só depois que o cache estiver completo. Isso não foi executado aqui.
 
-Detalhe e a lista do que falta: `docs/RESULTADO.md`.
+O leitor do pak, do OBM e das tabelas de texto está em `port/`. Não é um jogo jogável. Instruções: `port/README.md`. O bloqueio do módulo cifrado: `docs/RESULTADO.md`.

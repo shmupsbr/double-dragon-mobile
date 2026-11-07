@@ -6,13 +6,20 @@ from pathlib import Path
 from ios.macho_anim import (
     JIMMY_ACT0,
     JIMMY_ACT1,
+    JIMMY_ACT28,
+    JIMMY_ACT29,
+    SCREEN_H,
+    SCREEN_W,
     ZAKO_C00_ACT0,
     act_span,
+    attack_record,
     billy_move,
     compose_box,
     draw_flags,
     encryption,
+    first_wave,
     floor_ground,
+    hurt_record,
     jimmy_act0,
     jimmy_tables,
     key_config,
@@ -111,6 +118,48 @@ class IosAnimTest(unittest.TestCase):
         # Indexes 0..3 are the four stick bits. 6 is the 0x80 button.
         self.assertEqual(masks[:4], [4, 1, 8, 2])
         self.assertEqual(masks[6], 0x80)
+
+    def test_screen_height_is_the_map_y_base(self):
+        # 0x1fa84 is mov.w r2, #0x1e0 and 0x1faaa is subs r2, #0xa0,
+        # then that 320 is stored at applet+0x47ac. MapChipDraw subtracts it.
+        self.assertEqual(SCREEN_W, 480)
+        self.assertEqual(SCREEN_H, 320)
+        words = self.blob
+        # The immediates live in the armv7 slice. Check the halfwords.
+        base = 0x155000
+        def half(va):
+            import struct
+            return struct.unpack_from("<H", words, base + (va - 0x1000))[0]
+        # mov.w r2, #480 and subs r2, #160 are recorded by their results above.
+        self.assertEqual(half(0x1FAA2) & 0xFBF0, 0xF240)  # movw/mov.w family at the store site
+
+    def test_punch_acts_and_hit_data(self):
+        frames, opcode = act_span(self.blob, JIMMY_ACT28, JIMMY_ACT29)
+        self.assertEqual(opcode, 1)
+        self.assertEqual([f.pattern for f in frames], [40, 41, 43, 44, 45, 46, 47])
+        self.assertTrue(any(f.flags == 8 for f in frames))
+        box = attack_record(self.blob, 2)
+        self.assertEqual(box[:6], (-69, -58, 65, 11, -3, 7))
+        self.assertEqual(box[6], 8)
+        close = attack_record(self.blob, 5)
+        self.assertEqual(close[6], 12)
+        hurt = hurt_record(self.blob, 1)
+        self.assertEqual(hurt, (-18, -66, 31, 66, -2, 5))
+
+    def test_first_wave_is_not_a_placed_prop(self):
+        wave = first_wave(self.blob)
+        self.assertEqual(len(wave), 2)
+        # enemy def 0 -> char 12, Williams draw set, right of the 480-wide view
+        self.assertEqual(wave[0][0], 0)
+        self.assertEqual(wave[0][1], 12)
+        self.assertEqual(wave[0][2], 500)
+        self.assertEqual(wave[0][3], 56)
+        self.assertEqual(wave[0][4], 40)
+        # enemy def 1 -> char 4, Bash draw set
+        self.assertEqual(wave[1][1], 4)
+        self.assertEqual(wave[1][2], 500)
+        self.assertEqual(wave[1][3], 8)
+        self.assertEqual(wave[1][4], 30)
 
     def test_bash_act_uses_its_own_patterns(self):
         frames, opcode = act_span(self.blob, ZAKO_C00_ACT0, ZAKO_C00_ACT0 + 0x5C)

@@ -20,6 +20,6 @@ Os originais em `investigation/original/` ficam de fora do git.
 
 ## Windows
 
-A base agora é o `ddiPhone` iOS, com `cryptid` 0. Não é código-fonte: o slice armv7 está legível e os símbolos batem com as tabelas. A cena 1 está em `ios/`: mapa de chips, Jimmy nos atos 0 e 1, um BASH com a folha dele. Como gerar o pacote e o que ainda não foi recuperado: `ios/README.md`.
+A base agora é o `ddiPhone` iOS, com `cryptid` 0. Não é código-fonte: o slice armv7 está legível e os símbolos batem com as tabelas. A cena 1 está em `ios/`: o primeiro encontro (Williams e BASH em X=500), o soco do Jimmy e o dano lido de `DamageCalc`. Como gerar o pacote e o que ainda não foi recuperado: `ios/README.md`.
 
 O `port/ddslum` é o protótipo antigo e não vale como regra de luta. O módulo Android continua cifrado: `docs/RESULTADO.md`. Os originais não entram no git.

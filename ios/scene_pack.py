@@ -16,12 +16,19 @@ from PIL import Image
 from ios.macho_anim import (
     JIMMY_ACT0,
     JIMMY_ACT1,
+    JIMMY_ACT28,
+    JIMMY_ACT29,
+    JIMMY_ACT45,
     JIMMY_IMG,
     ZAKO_C00_ACT0,
     ZAKO_C00_IMG,
+    ZAKO_C01_IMG,
     act_span,
+    attack_record,
     billy_move,
+    first_wave,
     floor_ground,
+    hurt_record,
     jimmy_tables,
     pattern_parts,
     read_i16,
@@ -72,18 +79,18 @@ def _frames(blob, sheets, names, rects, pat, points, imgno, act_va, act_end):
     for frame in frames:
         parts = pattern_parts(pat, points, frame.pattern)
         image, ox, oy = _pose(sheets, rects, imgno, names, parts)
-        baked.append((frame.duration, ox, oy, image))
+        baked.append((frame.duration, frame.flags, ox, oy, image))
     return baked
 
 
 def _layer(chip: Image.Image, tiles: list[int], width: int, height: int) -> Image.Image:
     """Row 0 is the bottom of the screen.
 
-    glOrthox uses top=0 and bottom=-height, so GL Y grows upward.
-    FillRect and OPENGL_StoreSprite negate the game Y, which makes
-    game +Y grow downward from the top. The road tiles are the low
-    map rows, and FloorGroundSet's 0xEF sits on that road only when
-    those rows are at the bottom: image_y = (height - 1 - row) * 16.
+    0x1faa2 stores 480 at applet+0x47a8 and 320 at +0x47ac.
+    MapChipDraw subtracts +0x47ac from the tile Y. glOrthox has
+    top 0 and bottom -height, and StoreSprite negates game Y, so
+    game +Y grows down from the top. Low rows are the road and
+    land at the bottom: image_y = (height - 1 - row) * 16.
     """
     image = Image.new("RGBA", (width * 16, height * 16), (0, 0, 0, 0))
     for x in range(width):
@@ -112,7 +119,8 @@ def build(blob: bytes, obm_zip: Path) -> tuple[bytes, dict]:
     with zipfile.ZipFile(obm_zip) as zf:
         jimmy_img = read_i16(blob, JIMMY_IMG, 16)
         zako_img = read_i16(blob, ZAKO_C00_IMG, 8)
-        names = {i: resource_name(blob, i) for i in set(jimmy_img[:8] + zako_img[:4] + [69])}
+        will_img = read_i16(blob, ZAKO_C01_IMG, 8)
+        names = {i: resource_name(blob, i) for i in set(jimmy_img[:8] + zako_img[:4] + will_img[:4] + [69])}
         sheets = _sheets(zf, set(names.values()))
     jimmy_rects, jimmy_pat, jimmy_points = jimmy_tables(blob)
     zako_rects = read_rects(blob, ZAKO_RECT, ZAKO_PAT - ZAKO_RECT)
@@ -125,6 +133,16 @@ def build(blob: bytes, obm_zip: Path) -> tuple[bytes, dict]:
     bash = _frames(
         blob, sheets, names, zako_rects, zako_pat, zako_points, zako_img, ZAKO_C00_ACT0, ZAKO_C00_ACT0 + 0x5C
     )
+    will = _frames(
+        blob, sheets, names, zako_rects, zako_pat, zako_points, will_img, ZAKO_C00_ACT0, ZAKO_C00_ACT0 + 0x5C
+    )
+    punch28 = _frames(blob, sheets, names, jimmy_rects, jimmy_pat, jimmy_points, jimmy_img, JIMMY_ACT28, JIMMY_ACT29)
+    punch29 = _frames(blob, sheets, names, jimmy_rects, jimmy_pat, jimmy_points, jimmy_img, JIMMY_ACT29, 0xAA708)
+    punch45 = _frames(blob, sheets, names, jimmy_rects, jimmy_pat, jimmy_points, jimmy_img, JIMMY_ACT45, 0xAAB38)
+    wave = first_wave(blob)
+    atk = attack_record(blob, 2)
+    close = attack_record(blob, 5)
+    hurt = hurt_record(blob, 1)
     chip = sheets[names[69]]
     far = _layer(chip, info["near"], info["width"], info["height"])
     main = _layer(chip, info["main"], info["width"], info["height"])
@@ -139,7 +157,7 @@ def build(blob: bytes, obm_zip: Path) -> tuple[bytes, dict]:
     payload += struct.pack(
         "<4sHHHiiiiiiiiiiHHHH",
         b"DD1S",
-        1,
+        2,
         480,
         320,
         info["pixel_w"],
@@ -155,26 +173,37 @@ def build(blob: bytes, obm_zip: Path) -> tuple[bytes, dict]:
         len(idle),
         len(walk),
         len(bash),
-        160,
+        0,
     )
+    payload += struct.pack("<4H", len(will), len(punch28), len(punch29), len(punch45))
+    payload += struct.pack("<7h", atk[0], atk[1], atk[2], atk[3], atk[4], atk[5], atk[6])
+    payload += struct.pack("<7h", close[0], close[1], close[2], close[3], close[4], close[5], close[6])
+    payload += struct.pack("<6b", *hurt)
+    payload += struct.pack("<2h", 90, 10)
+    payload += struct.pack("<i", len(wave))
+    for _param, _char, x, z, hp in wave:
+        sheet = 1 if _char == 12 else 0
+        payload += struct.pack("<4i", x, z, hp, sheet)
     payload += struct.pack(f"<{len(ground)}i", *ground)
 
     def put_image(image: Image.Image) -> None:
         payload.extend(image.tobytes())
 
+    def put_group(group) -> None:
+        for duration, flags, ox, oy, image in group:
+            payload.extend(struct.pack("<HIHHhh", duration, flags & 0xFFFFFFFF, image.size[0], image.size[1], ox, oy))
+            put_image(image)
+
     put_image(far)
     put_image(main)
-    for group in (idle, walk, bash):
-        for duration, ox, oy, image in group:
-            payload += struct.pack("<HHHhh", duration, image.size[0], image.size[1], ox, oy)
-            put_image(image)
+    for group in (idle, walk, bash, will, punch28, punch29, punch45):
+        put_group(group)
     meta = {
         "spawn": (spawn_x, spawn_z),
         "ground": floor_ground(blob, spawn_x, spawn_z),
-        "idle": len(idle),
-        "walk": len(walk),
-        "bash": len(bash),
-        "bash_name": names[zako_img[0]],
+        "wave": wave,
+        "punch28": len(punch28),
+        "punch45": len(punch45),
     }
     return bytes(payload), meta
 

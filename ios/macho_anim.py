@@ -32,7 +32,7 @@ OPCODE_EXTRA = {
     10: 1,  # Act_AI_HITA
     11: 1,  # Act_AI_MOVE
     12: 1,  # Act_AI_MOVE_Y
-    13: 1,  # Act_AI_SET_MOVE
+    13: 4,  # Act_AI_SET_MOVE reads four words, then one more pc step
     14: 1,  # Act_AI_SET_MOVE2
     15: 0,  # Act_AI_RESET_MOVE
     16: 1,  # Act_AI_ADD_MOVE
@@ -42,7 +42,7 @@ OPCODE_EXTRA = {
     20: 0,  # Act_AI_TURN
     21: 1,  # Act_AI_NAGE
     22: 1,  # Act_AI_DAMAGE
-    23: 1,  # Act_AI_SOUND
+    23: 3,  # Act_AI_SOUND leaves pc four words after the opcode
     24: 2,  # Act_AI_OFFSET
 }
 
@@ -62,7 +62,19 @@ ZAKO_C00_RECT = 0x7CD92
 ZAKO_C00_PAT = 0x7DF42
 ZAKO_C00_PAT_POINT = 0x7E48A
 ZAKO_C00_IMG = 0x7E56A
+ZAKO_C01_IMG = 0x7E58C
 ZAKO_C00_ACT0 = 0xB2174
+ZAKO_BODY = 0xC6EA6
+JIMMY_ACT28 = 0xAA608
+JIMMY_ACT29 = 0xAA688
+JIMMY_ACT45 = 0xAAA6C
+JIMMY_ATK = 0xC67C4
+ENC_LIST = 0x64A60
+ENC_ENEMY = 0x64DE0
+ENEMY_TBL = 0xC55D0
+# Written at 0x1faa2 and 0x27666: +0x47a8 = 0x1e0, +0x47ac = 0x1e0-0xa0.
+SCREEN_W = 0x1E0
+SCREEN_H = 0x140
 NAME_TABLE = 0x5EAB0
 NAME_SLOT = 0x20
 STAGE1_RANGE = 0x650B0
@@ -302,6 +314,54 @@ def floor_ground(blob: bytes, x: int, z: int) -> int | None:
     bit = masks[((z & 15) << 4) + (x & 15)]
     height = rec[1] if bit == 0 else rec[2]
     return 0xEF - height
+
+
+def attack_record(blob: bytes, index: int) -> tuple[int, ...]:
+    """One _ATK_DATA. HitRangeCheck reads x,y,w,h,z,zs. DamageCalc reads +0xc."""
+    raw = _load(blob, JIMMY_ATK + index * 26, 26)
+    return struct.unpack("<13h", raw)
+
+
+def hurt_record(blob: bytes, index: int) -> tuple[int, ...]:
+    """ciZakoC00BodyData. Act 0's HITP selects index 1 for these zako."""
+    raw = _load(blob, ZAKO_BODY + index * 6, 6)
+    return struct.unpack("<6b", raw)
+
+
+def enemy_def(blob: bytes, index: int) -> tuple[int, int, int, int]:
+    """csStage01EncEnemyData, 24 bytes. Returns char id, x, z, flags."""
+    words = read_i32(blob, ENC_ENEMY + index * 24, 6)
+    return words[0], words[1], words[3], words[5]
+
+
+def char_def(blob: bytes, index: int) -> tuple[int, int, int]:
+    """csEnemyDataTbl, 24 bytes. Returns type, draw set, hp at +0xc."""
+    words = read_i32(blob, ENEMY_TBL + index * 24, 6)
+    return words[0], words[1], words[3]
+
+
+def first_wave(blob: bytes) -> list[tuple[int, int, int, int, int]]:
+    """Kind-3 rows of csStage01EncData with scroll X 0.
+
+    The scroll byte of csStage01ScrollSet is 0, so ScrollEncountCheck
+    uses the path that spawns while record X <= camera and stops after.
+    Returns (enemy index, char id, x, z, hp) using screen width 480.
+    """
+    out = []
+    raw = _load(blob, ENC_LIST, 16 * 40)
+    for i in range(40):
+        scroll, kind, param, _extra = struct.unpack_from("<4i", raw, i * 16)
+        if scroll < 0:
+            break
+        if scroll > 0:
+            break
+        if kind != 3:
+            continue
+        char_id, _abs_x, depth, flags = enemy_def(blob, param)
+        _typ, _draw, hp = char_def(blob, char_id)
+        x = SCREEN_W + 20 if flags & 2 else _abs_x
+        out.append((param, char_id, x, depth, hp))
+    return out
 
 
 def compose_box(rects: list[Rect], part_ids: list[int]) -> tuple[int, int, int, int]:

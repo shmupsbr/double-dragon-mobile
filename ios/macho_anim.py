@@ -426,9 +426,9 @@ def enc_data2(blob: bytes) -> list[tuple[int, int, int, int]]:
 def encounter_rows(blob: bytes) -> tuple[list[tuple], list[tuple]]:
     """Split csStage01EncData into rows this scene can dispatch and rows it cannot.
 
-    Implemented kinds are 0 (quota), 3 (enemy), 5 (scroll-lock increment) and
-    the three kind-9 objects whose ready procs watch applet+0x47f4.
-    Kind 4 items, the scroll-0 scenery objects, and kind 10 at scroll 1055
+    Implemented kinds are 0 (quota), 3 (enemy), 5 (scroll-lock increment),
+    9 (the three objects whose ready procs watch applet+0x47f4) and 10
+    (the scroll-1055 timer). Kind 4 items and the scroll-0 scenery objects
     stay deferred. Kind 10 tasks that EncData2 itself starts are not rows.
     """
     done = []
@@ -449,6 +449,8 @@ def encounter_rows(blob: bytes) -> tuple[list[tuple], list[tuple]]:
             done.append((scroll, kind, param, trigger))
         elif kind == 5:
             done.append((scroll, kind))
+        elif kind == 10:
+            done.append((scroll, kind, param, extra))
         elif kind == 9 and param in OBJ_PHASE:
             x, z, phase, obj_extra, place_y, fire_mode = OBJ_PHASE[param]
             done.append((scroll, 9, x, z, phase, obj_extra, place_y, fire_mode))

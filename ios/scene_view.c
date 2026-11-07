@@ -34,7 +34,7 @@ typedef struct {
     int x, z, hp, alive, sheet, frame, timer, shown, hit;
     int facing, mode, cmd, counts;
     int x_fp, z_fp, y_fp, vx, vz, yv, ya;
-    int no_push, wall_cc, wall_c8, z_vel;
+    int no_push, wall_cc, wall_c8, z_vel, ko_key;
 } Foe;
 
 typedef struct {
@@ -130,7 +130,7 @@ typedef struct {
     Frame *r8[5][4];
     int n_rows, row_i, trigger;
     int rows[28][8];
-    int camera, lock_i, quota, phase;
+    int camera, lock_i, quota, phase, stage_clear, unspawned;
     int n_keys;
     int keys[48][4];
     int edict[20][8];
@@ -216,7 +216,7 @@ static Scene *load_scene(const char *path) {
     if (!fp) return NULL;
     scene = calloc(1, sizeof(Scene));
     if (!scene || !rd(fp, magic, 4) || memcmp(magic, "DD1S", 4) != 0) goto fail;
-    if (!ru16(fp, &version) || version != 14) goto fail;
+    if (!ru16(fp, &version) || version != 15) goto fail;
     if (!ru16(fp, &vw) || !ru16(fp, &vh)) goto fail;
     if (!ri32(fp, &scene->map_w) || !ri32(fp, &scene->map_h)) goto fail;
     if (!ri32(fp, &scene->spawn_x) || !ri32(fp, &scene->spawn_z)) goto fail;
@@ -423,6 +423,7 @@ static Scene *load_scene(const char *path) {
         !scene->dash || !scene->b48 || !scene->b50 || !scene->crouch)
         goto fail;
     scene->trigger = -1;
+    scene->unspawned = -1;
     if (!scene->idle || !scene->walk || !scene->bash || !scene->will || !scene->p28 || !scene->p29 ||
         !scene->p45 || !scene->zwb || !scene->zww || !scene->zpb || !scene->zpw || !scene->zdb ||
         !scene->zdw || !scene->jd || !scene->zlb || !scene->zlw || !scene->jl || !scene->zfb ||
@@ -885,7 +886,7 @@ static void slide_body(const Scene *scene, int *x_fp, int *z_fp, int old_x, int 
 static const int LOCK_MIN[8] = {0, 0, 100, 100, 687, 687, 1055, 0};
 static const int LOCK_MAX[8] = {0, 191, 191, 687, 687, 1055, 1055, 1072};
 
-static void spawn_enemy(Scene *scene, int x, int z, int hp, int sheet, int flags, int y_word) {
+static void spawn_enemy(Scene *scene, int x, int z, int hp, int sheet, int flags, int y_word, int ko_key) {
     Foe *foe;
     if (flags & 1) x = scene->camera - 20;
     if (flags & 2) x = scene->camera + VIEW_W + 20;
@@ -903,6 +904,8 @@ static void spawn_enemy(Scene *scene, int x, int z, int hp, int sheet, int flags
        state 1 counts d0 (8) down, state 2 counts 3, then ReadySet. */
     foe->no_push = (flags & 0x10) ? 1 : 0;
     foe->wall_cc = (flags & 0x100) ? 0 : -1;
+    /* EncountEnemyCreate copies the row extra into +0x144. 65535 is empty. */
+    foe->ko_key = ko_key >= 65535 ? -1 : ko_key;
     foe->z_vel = 0;
     foe->x_fp = x << 16;
     foe->z_fp = z << 16;
@@ -934,10 +937,20 @@ static void apply_key(Scene *scene, int key) {
         } else if (kind == 8) {
             /* SetEncount kind 8 stores the param at applet+0x47f4. */
             scene->phase = param;
-        } else if (kind == 3 && param >= 0 && param < 20 && scene->edict[param][3] >= 0) {
-            spawn_enemy(scene, scene->edict[param][0], scene->edict[param][1],
-                        scene->edict[param][2], scene->edict[param][3],
-                        scene->edict[param][4], scene->edict[param][5]);
+        } else if (kind == 3 && param >= 0 && param < 20) {
+            if (scene->edict[param][3] < 0) {
+                /* Char 40 is draw 26. That slot is not in the sheet map, so
+                   he is not replaced with another body. */
+                scene->unspawned = param;
+            } else {
+                spawn_enemy(scene, scene->edict[param][0], scene->edict[param][1],
+                            scene->edict[param][2], scene->edict[param][3],
+                            scene->edict[param][4], scene->edict[param][5],
+                            scene->edict[param][7]);
+            }
+        } else if (kind == 7) {
+            /* ORs 0x1000 into applet+0x2538. */
+            scene->stage_clear = 1;
         } else if (kind == 10 && extra >= 0 && extra < 65535) {
             int t;
             for (t = 0; t < 8; t++) {
@@ -955,18 +968,26 @@ static void apply_key(Scene *scene, int key) {
 }
 
 static void note_ko(Scene *scene, Foe *foe) {
-    int key;
-    if (!foe->counts) return;
-    foe->counts = 0;
-    /* EnemyKOTriggerCheck decrements +0x47f2 while +0x47f0 is 0.
-       TriggerConditionCheck then fires +0x47ee once the remaining count
-       drops below the threshold kind 0 stored (1). */
-    if (scene->quota <= 0 || scene->trigger < 0) return;
-    scene->quota--;
-    if (scene->quota > 0) return;
-    key = scene->trigger;
-    scene->trigger = -1;
-    apply_key(scene, key);
+    int key, personal;
+    /* +0x144 is independent of the counting bit. 65535 was stored as -1. */
+    personal = foe->ko_key;
+    foe->ko_key = -1;
+    if (foe->counts) {
+        foe->counts = 0;
+        /* EnemyKOTriggerCheck decrements +0x47f2 while +0x47f0 is 0.
+           TriggerConditionCheck then fires +0x47ee once the remaining count
+           drops below the threshold kind 0 stored (1). */
+        if (scene->quota > 0 && scene->trigger >= 0) {
+            scene->quota--;
+            if (scene->quota <= 0) {
+                key = scene->trigger;
+                scene->trigger = -1;
+                apply_key(scene, key);
+            }
+        }
+    }
+    /* The personal key is read after the quota update. */
+    if (personal >= 0) apply_key(scene, personal);
 }
 
 static void step_world(Scene *scene) {
@@ -1054,7 +1075,16 @@ static void consume_rows(Scene *scene) {
         } else if (row[1] == 5) {
             if (scene->lock_i < 7) scene->lock_i++;
         } else if (row[1] == 3) {
-            spawn_enemy(scene, row[2], row[3], row[4], row[5], row[6], row[7]);
+            spawn_enemy(scene, row[2], row[3], row[4], row[5], row[6], row[7], -1);
+        } else if (row[1] == 10 && row[3] >= 0 && row[3] < 65535) {
+            int t;
+            for (t = 0; t < 8; t++) {
+                if (scene->timers[t].alive) continue;
+                scene->timers[t].alive = 1;
+                scene->timers[t].left = row[2];
+                scene->timers[t].key = row[3];
+                break;
+            }
         } else if (row[1] == 9 && scene->n_props < 6) {
             Prop *prop = &scene->props[scene->n_props++];
             memset(prop, 0, sizeof(*prop));
@@ -2330,7 +2360,7 @@ static int run_dump(Scene *scene, const char *path, int frames, int hold) {
         }
         scene->quota = 1;
         scene->trigger = 2;
-        spawn_enemy(scene, 10, 8, 1, 0, 0x20, 0);
+        spawn_enemy(scene, 10, 8, 1, 0, 0x20, 0, -1);
         scene->foes[scene->n_foes - 1].alive = 0;
         note_ko(scene, &scene->foes[scene->n_foes - 1]);
     }
@@ -2338,39 +2368,60 @@ static int run_dump(Scene *scene, const char *path, int frames, int hold) {
         int f;
         /* Labeled hitbox fixture: one foe inside the 90px close-kick range. */
         for (f = 0; f < scene->n_foes; f++) scene->foes[f].alive = 0;
-        spawn_enemy(scene, 120, 56, 40, 2, 0, 0);
+        spawn_enemy(scene, 120, 56, 40, 2, 0, 0, -1);
         hero.facing = 1;
     }
     if (hold == 21) {
         int f;
         for (f = 0; f < scene->n_foes; f++) scene->foes[f].alive = 0;
-        spawn_enemy(scene, 90, 56, 40, 2, 0, 0);
+        spawn_enemy(scene, 90, 56, 40, 2, 0, 0, -1);
         hero.facing = 1;
     }
     if (hold == 22) {
         int f;
         /* Act 48's box only reaches 3px past the origin when facing right. */
         for (f = 0; f < scene->n_foes; f++) scene->foes[f].alive = 0;
-        spawn_enemy(scene, 70, 56, 40, 2, 0, 0);
+        spawn_enemy(scene, 70, 56, 40, 2, 0, 0, -1);
         hero.facing = 1;
     }
     if (hold == 24) {
         int f;
         for (f = 0; f < scene->n_foes; f++) scene->foes[f].alive = 0;
-        spawn_enemy(scene, 50, 56, 40, 2, 0, 0);
+        spawn_enemy(scene, 50, 56, 40, 2, 0, 0, -1);
         hero.facing = 0;
     }
     if (hold == 25) {
         int f;
         for (f = 0; f < scene->n_foes; f++) scene->foes[f].alive = 0;
-        spawn_enemy(scene, 70, 56, 22, 2, 0, 0);
+        spawn_enemy(scene, 70, 56, 22, 2, 0, 0, -1);
         hero.facing = 1;
     }
     if (hold == 23) {
         int f;
         for (f = 0; f < scene->n_foes; f++) scene->foes[f].alive = 0;
         /* Flag 0x130: count, no push, GT_EnemyWallEntry. Born at Z 76. */
-        spawn_enemy(scene, 767, 76, 40, 1, 0x130, 0);
+        spawn_enemy(scene, 767, 76, 40, 1, 0x130, 0, -1);
+    }
+    if (hold == 29) {
+        /* Isolated scroll dispatch. Lock 5 is what key 4 stores after the
+           wall quota. Earlier rows are not replayed. */
+        int r;
+        scene->lock_i = 5;
+        scene->camera = 1055;
+        /* Keep the camera on the lock. Hero x 60 would drag it back to 687. */
+        hero.x_fp = (1055 + 240) << 16;
+        for (r = 0; r < scene->n_rows; r++) {
+            if (scene->rows[r][0] >= 1055) break;
+        }
+        scene->row_i = r;
+    }
+    if (hold == 30) {
+        /* Isolated +0x144 chain. Not a played death: key 99 is enemy 19's extra. */
+        scene->foes[0].counts = 0;
+        scene->foes[0].ko_key = 99;
+        scene->foes[0].alive = 0;
+        scene->foes[0].hp = 0;
+        note_ko(scene, &scene->foes[0]);
     }
     for (i = 0; i < frames; i++) {
         int left = hold == 1, right = hold == 2 || hold == 5 || hold == 7, up = hold == 3, down = hold == 4;
@@ -2443,15 +2494,16 @@ static int run_dump(Scene *scene, const char *path, int frames, int hold) {
     printf("cam %d lock %d nf %d\n", scene->camera, scene->lock_i, scene->n_foes);
     if ((hold >= 5 && hold <= 9) || hold == 12 || hold == 13 || hold == 14 || hold == 15 ||
         hold == 16 || hold == 17 || hold == 21 || hold == 22 || hold == 23 ||
-        hold == 24 || hold == 25 || hold == 26 || hold == 27) {
+        hold == 24 || hold == 25 || hold == 26 || hold == 27 || hold == 29 || hold == 30) {
         printf("hp %d", hero.hp);
         for (i = 0; i < scene->n_foes; i++) printf(" %d", scene->foes[i].hp);
         printf(" x");
         for (i = 0; i < scene->n_foes; i++) printf(" %d", scene->foes[i].x);
         printf(" m");
         for (i = 0; i < scene->n_foes; i++) printf(" %d", scene->foes[i].mode);
-        printf(" pm %d y %d cam %d lock %d nf %d ph %d q %d\n", hero.mode, hero.y_fp >> 16,
-               scene->camera, scene->lock_i, scene->n_foes, scene->phase, scene->quota);
+        printf(" pm %d y %d cam %d lock %d nf %d ph %d q %d sc %d us %d\n", hero.mode, hero.y_fp >> 16,
+               scene->camera, scene->lock_i, scene->n_foes, scene->phase, scene->quota,
+               scene->stage_clear, scene->unspawned);
         if (hold == 23) {
             printf("fz");
             for (i = 0; i < scene->n_foes; i++) printf(" %d", scene->foes[i].z);
@@ -2480,6 +2532,8 @@ int main(int argc, char **argv) {
         if (argc > 5 && strcmp(argv[5], "react") == 0) hold = 13;
         if (argc > 5 && strcmp(argv[5], "chain") == 0) hold = 14;
         if (argc > 5 && strcmp(argv[5], "route") == 0) hold = 15;
+        if (argc > 5 && strcmp(argv[5], "s1055") == 0) hold = 29;
+        if (argc > 5 && strcmp(argv[5], "bosskey") == 0) hold = 30;
         if (argc > 5 && strcmp(argv[5], "jump") == 0) hold = 16;
         if (argc > 5 && strcmp(argv[5], "kick") == 0) hold = 17;
         if (argc > 5 && strcmp(argv[5], "jumpr") == 0) hold = 18;

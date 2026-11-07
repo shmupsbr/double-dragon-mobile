@@ -243,9 +243,11 @@ class IosAnimTest(unittest.TestCase):
         self.assertIn((0, 9), kinds)
         self.assertNotIn((100, 9), kinds)
         self.assertNotIn((687, 9), kinds)
-        self.assertIn((1055, 10), kinds)
+        self.assertNotIn((1055, 10), kinds)
         implemented = [row[1] for row in done]
-        self.assertTrue(set(implemented) <= {0, 3, 5, 9})
+        self.assertTrue(set(implemented) <= {0, 3, 5, 9, 10})
+        timers = [row for row in done if row[1] == 10]
+        self.assertEqual(timers, [(1055, 10, 100, 5)])
         door = [row for row in done if row[1] == 9 and row[4] == 1]
         wall = [row for row in done if row[1] == 9 and row[4] == 2]
         self.assertEqual(door, [(100, 9, 767, 64, 1, 10, 0, 1)])
@@ -268,6 +270,10 @@ class IosAnimTest(unittest.TestCase):
         self.assertIn((22, 3, 13, 65535), rows)
         self.assertEqual(char_def(self.blob, 31), (17, 19, 50))
         self.assertEqual(char_def(self.blob, 6), (4, 6, 30))
+        self.assertEqual(char_def(self.blob, 40), (24, 26, 200))
+        self.assertIn((5, 3, 19, 99), rows)
+        self.assertIn((99, 10, 30, 100), rows)
+        self.assertIn((100, 7, 0, 0), rows)
 
     def test_bash_act_uses_its_own_patterns(self):
         frames, opcode = act_span(self.blob, ZAKO_C00_ACT0, ZAKO_C00_ACT0 + 0x5C)

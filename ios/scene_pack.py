@@ -220,7 +220,7 @@ def build(blob: bytes, obm_zip: Path) -> tuple[bytes, dict]:
     payload += struct.pack(
         "<4sHHHiiiiiiiiiiHHHH",
         b"DD1S",
-        14,
+        15,
         480,
         320,
         info["pixel_w"],
@@ -305,6 +305,8 @@ def build(blob: bytes, obm_zip: Path) -> tuple[bytes, dict]:
             payload += struct.pack("<8i", row[0], 3, x, z, hp, draw_sheet[draw], flags, y_word)
         elif kind == 0:
             payload += struct.pack("<8i", row[0], 0, row[2], row[3], 0, 0, 0, 0)
+        elif kind == 10:
+            payload += struct.pack("<8i", row[0], 10, row[2], row[3], 0, 0, 0, 0)
         elif kind == 9:
             payload += struct.pack("<8i", *row)
         else:
@@ -333,11 +335,15 @@ def build(blob: bytes, obm_zip: Path) -> tuple[bytes, dict]:
     # Enemy records named by EncData2 kind-3 params. Empty slots are not spawned.
     payload += struct.pack("<i", 20)
     for index in range(20):
-        if index in (9, 10, 11, 12, 13):
+        if index in (9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19):
             words = struct.unpack_from("<6i", blob, va_to_offset(0x64DE0 + index * 24))
             char_id, abs_x, y_word, depth, _entry, flags = words
             _typ, draw, hp = char_def(blob, char_id)
-            payload += struct.pack("<8i", abs_x, depth, hp, draw_sheet[draw], flags, y_word, char_id, 0)
+            # EncData2 extra is copied to task+0x144. Only enemy 19's row
+            # (key 5) carries a key, 99. 65535 is the empty halfword.
+            ko = 99 if index == 19 else -1
+            sheet = draw_sheet.get(draw, -1)
+            payload += struct.pack("<8i", abs_x, depth, hp, sheet, flags, y_word, char_id, ko)
         else:
             payload += struct.pack("<8i", 0, 0, 0, -1, 0, 0, 0, 0)
     obj_rects = read_rects(blob, 0x95062, 0x95232 - 0x95062)

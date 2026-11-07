@@ -226,6 +226,25 @@ class SceneDumpTest(unittest.TestCase):
         self.assertIn("ph 2", wall)
         self.assertIn("992", wall)
 
+    def test_scroll_1055_arms_the_boss_key(self):
+        # Isolated dispatcher. Lock 5 is the post-wall lock. The 1055 rows
+        # then run, including kind 10 param 100 extra 5. One hundred frames
+        # later key 5 asks for enemy 19. Draw 26 has no sheet here.
+        armed = self.dump(1, "s1055")
+        fired = self.dump(101, "s1055")
+        self.assertIn("us -1", armed)
+        self.assertIn("sc 0", armed)
+        self.assertIn("us 19", fired)
+        self.assertIn("sc 0", fired)
+
+    def test_boss_ko_key_sets_the_clear_bit(self):
+        # Isolated +0x144 chain, not a fight. Key 99 waits 30 frames, then
+        # key 100 is kind 7 and ORs 0x1000 into +0x2538.
+        waiting = self.dump(29, "bosskey")
+        cleared = self.dump(30, "bosskey")
+        self.assertIn("sc 0", waiting)
+        self.assertIn("sc 1", cleared)
+
     def test_player_loss_stays_down(self):
         text = self.dump(700, "crowd")
         self.assertIn("hp 0 40 30", text)

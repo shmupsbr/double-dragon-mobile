@@ -241,11 +241,11 @@ static int jimmy_frame(const Actor *a) {
     if (a->state == ST_PUNCH) {
         return 5;
     }
-    if (a->state == ST_KICK || a->state == ST_AIR) {
+    if (a->state == ST_KICK) {
         return 6;
     }
-    if (a->state == ST_SPECIAL) {
-        return 9;
+    if (a->state == ST_AIR || a->state == ST_SPECIAL) {
+        return 1;
     }
     if (a->state == ST_HURT) {
         return 7;
@@ -276,7 +276,7 @@ static int enemy_frame(const Actor *a) {
 }
 
 static int feet_y(const Actor *a) {
-    return 230 + a->depth - a->alt;
+    return 300 + a->depth - a->alt;
 }
 
 static int screen_x(const Sim *s, int world_x) {

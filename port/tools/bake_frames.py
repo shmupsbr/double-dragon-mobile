@@ -91,32 +91,36 @@ def key_magenta(im: Image.Image) -> Image.Image:
     for y in range(h):
         for x in range(w):
             r, g, b, a = px[x, y]
-            if r > 180 and b > 180 and g < 90:
-                px[x, y] = (0, 0, 0, 0)
+            if (r > 180 and b > 180 and g < 90) or (b > 150 and r < 90 and g < 140):
+                px[x, y] = (118, 116, 110, 255)
     return out
 
 
 # id, sheet, x, y, w, h, magenta_key
 # Sheet art faces screen-left. The game mirrors it when facing right.
 FRAMES = [
-    (1, "res/obm2/JIMMY_1.obm", 0, 50, 38, 43, False),  # idle guard
-    (2, "res/obm2/JIMMY_1.obm", 0, 0, 37, 49, False),  # walk
-    (3, "res/obm2/JIMMY_1.obm", 126, 0, 32, 50, False),  # stride
-    (4, "res/obm2/JIMMY_1.obm", 0, 164, 29, 46, False),
-    (5, "res/obm2/JIMMY_1.obm", 86, 0, 38, 43, False),  # punch
-    (6, "res/obm2/JIMMY_1.obm", 160, 0, 30, 50, False),  # leg forward, used as kick
-    (7, "res/obm2/JIMMY_1.obm", 192, 0, 38, 37, False),  # hurt
-    (8, "res/obm2/JIMMY_1.obm", 80, 44, 44, 36, False),  # down
-    (9, "res/obm2/JIMMY_1.obm", 40, 84, 38, 42, False),  # special pose
-    (11, "res/obm2/WILLIAMS.obm", 0, 41, 42, 38, False),
-    (12, "res/obm2/WILLIAMS.obm", 0, 1, 44, 38, False),
+    # Connected sprites that include the shoes. The wider pieces above the
+    # waist were the previous, incorrect crops.
+    (1, "res/obm2/JIMMY_1.obm", 231, 0, 21, 60, False),  # idle, feet included
+    (2, "res/obm2/JIMMY_1.obm", 120, 108, 21, 62, False),  # walk
+    (3, "res/obm2/JIMMY_1.obm", 125, 51, 27, 56, False),
+    (4, "res/obm2/JIMMY_1.obm", 160, 0, 30, 50, False),
+    (5, "res/obm2/JIMMY_1.obm", 224, 128, 27, 58, False),  # punch
+    (6, "res/obm2/JIMMY_1.obm", 252, 134, 19, 52, False),  # kick
+    (7, "res/obm2/JIMMY_1.obm", 125, 51, 27, 56, False),  # hurt reuses a full body
+    (8, "res/obm2/JIMMY_1.obm", 252, 134, 19, 52, False),  # down reuses the kick, which has a shoe
+    (9, "res/obm2/JIMMY_1.obm", 231, 0, 21, 60, False),  # special pose is the full idle plus the drawn aura
+    # One full enemy pose, head through boots. The other tall boxes on this
+    # sheet lose the head or the feet, so every state reuses this sprite.
+    (11, "res/obm2/WILLIAMS.obm", 92, 1, 30, 50, False),
+    (12, "res/obm2/WILLIAMS.obm", 92, 1, 30, 50, False),
     (13, "res/obm2/WILLIAMS.obm", 92, 1, 30, 50, False),
-    (14, "res/obm2/WILLIAMS.obm", 168, 2, 29, 41, False),  # attack
-    (15, "res/obm2/WILLIAMS.obm", 49, 78, 32, 43, False),  # hurt
-    (16, "res/obm2/WILLIAMS.obm", 46, 0, 44, 36, False),  # down-ish
+    (14, "res/obm2/WILLIAMS.obm", 92, 1, 30, 50, False),
+    (15, "res/obm2/WILLIAMS.obm", 92, 1, 30, 50, False),
+    (16, "res/obm2/WILLIAMS.obm", 92, 1, 30, 50, False),
     (20, "res/obm2/face_Jimmy.obm", 0, 0, 32, 32, False),
-    (21, "res/obm2/AREA1_CHIP.obm", 0, 456, 192, 14, True),  # cobble row
-    (22, "res/obm2/AREA1_CHIP.obm", 0, 0, 160, 96, True),  # brick and fence
+    (21, "res/obm2/AREA1_CHIP.obm", 0, 456, 512, 14, True),  # wide cobble row, not a tiny stamp
+    (22, "res/obm2/AREA1_CHIP.obm", 0, 0, 256, 96, True),
 ]
 
 

@@ -35,7 +35,7 @@ Observado, em tempos aproximados, não medidos quadro a quadro: Jimmy selecionad
 
 Reimplementado, com valores nossos: velocidades, dano (soco 8, chute 12, especial 16), vida (48 e 36), alcance, o portão de profundidade de 16 px, o tempo de 90 segundos, a pontuação `100 × corrente` e a corrente que expira em cerca de um segundo. O pulo é um arco curto. A palavra `GO!` e a seta são desenhadas, não são um sprite recortado do jogo. A fonte do HUD também não é a fonte original.
 
-Os quadros foram cortados à mão nas folhas, porque o pak não tem tabela de animação. Vários desenhos estão com braço ou perna separados do corpo; o corte fica no pedaço conexo que ainda se lê como o golpe. A expansão de cor do OBM para RGBA5551 continua inferida.
+Os primeiros cortes pegaram só o tronco. A folha também tem sprites conexos mais estreitos que descem até o sapato preto. A fatia usa esses, em `JIMMY_1.obm` e `WILLIAMS.obm`. Não há tabela de animação no pak: ocioso, andar, soco e chute são poses inteiras diferentes; o dano e a queda reaproveitam uma pose inteira em vez de um tronco. O especial é a pose em pé, com a aura azul desenhada por cima. A expansão RGBA5551 continua inferida. O chão é a faixa larga de paralelepípedo de `AREA1_CHIP.obm`, repetida; não é um mapa recuperado.
 
 ## O que esta rodada não faz
 

@@ -57,10 +57,12 @@ typedef struct {
     int n_zfb, n_zfw, n_zgb, n_zgw, n_jf, n_jg;
     int n_zlib, n_zliw, n_jlie, n_zdib, n_zdiw, n_jdie, n_jstun;
     int n_jump, n_land, n_kick, n_ckick, n_akick;
-    int n_s8b, n_s8w, n_s8o, n_s8l, n_s8m;
+    int n_s8b, n_s8w, n_s8o, n_s8l, n_s8m, n_dash, n_b48, n_b50;
     int k3x, k3y, k3w, k3h, k3z, k3zs, k3dmg, k3react;
     int k4x, k4y, k4w, k4h, k4z, k4zs, k4dmg, k4react;
     int k18x, k18y, k18w, k18h, k18z, k18zs, k18dmg, k18react;
+    int k13x, k13y, k13w, k13h, k13z, k13zs, k13dmg, k13react;
+    int k14x, k14y, k14w, k14h, k14z, k14zs, k14dmg, k14react;
     int zvx, zvz, hero_hp;
     int zx, zy, zw, zh, zz, zzs, zdmg;
     int32_t *ground;
@@ -123,6 +125,7 @@ typedef struct {
     int objn[4];
     Frame *jump, *land, *kick, *ckick, *akick;
     Frame *s8b, *s8w, *s8o, *s8l, *s8m;
+    Frame *dash, *b48, *b50;
     int n_rows, row_i, trigger;
     int rows[28][8];
     int camera, lock_i, quota, phase;
@@ -211,7 +214,7 @@ static Scene *load_scene(const char *path) {
     if (!fp) return NULL;
     scene = calloc(1, sizeof(Scene));
     if (!scene || !rd(fp, magic, 4) || memcmp(magic, "DD1S", 4) != 0) goto fail;
-    if (!ru16(fp, &version) || version != 11) goto fail;
+    if (!ru16(fp, &version) || version != 12) goto fail;
     if (!ru16(fp, &vw) || !ru16(fp, &vh)) goto fail;
     if (!ri32(fp, &scene->map_w) || !ri32(fp, &scene->map_h)) goto fail;
     if (!ri32(fp, &scene->spawn_x) || !ri32(fp, &scene->spawn_z)) goto fail;
@@ -363,7 +366,8 @@ static Scene *load_scene(const char *path) {
     if (!ru16(fp, &scene->n_jump) || !ru16(fp, &scene->n_land) || !ru16(fp, &scene->n_kick) ||
         !ru16(fp, &scene->n_ckick) || !ru16(fp, &scene->n_akick) || !ru16(fp, &scene->n_s8b) ||
         !ru16(fp, &scene->n_s8w) || !ru16(fp, &scene->n_s8o) || !ru16(fp, &scene->n_s8l) ||
-        !ru16(fp, &scene->n_s8m))
+        !ru16(fp, &scene->n_s8m) || !ru16(fp, &scene->n_dash) || !ru16(fp, &scene->n_b48) ||
+        !ru16(fp, &scene->n_b50))
         goto fail;
     scene->jump = load_frames(fp, scene->n_jump);
     scene->land = load_frames(fp, scene->n_land);
@@ -375,6 +379,9 @@ static Scene *load_scene(const char *path) {
     scene->s8o = load_frames(fp, scene->n_s8o);
     scene->s8l = load_frames(fp, scene->n_s8l);
     scene->s8m = load_frames(fp, scene->n_s8m);
+    scene->dash = load_frames(fp, scene->n_dash);
+    scene->b48 = load_frames(fp, scene->n_b48);
+    scene->b50 = load_frames(fp, scene->n_b50);
     if (!rs16(fp, &scene->k3x) || !rs16(fp, &scene->k3y) || !rs16(fp, &scene->k3w) ||
         !rs16(fp, &scene->k3h) || !rs16(fp, &scene->k3z) || !rs16(fp, &scene->k3zs) ||
         !rs16(fp, &scene->k3dmg) || !rs16(fp, &scene->k3react))
@@ -387,8 +394,17 @@ static Scene *load_scene(const char *path) {
         !rs16(fp, &scene->k18h) || !rs16(fp, &scene->k18z) || !rs16(fp, &scene->k18zs) ||
         !rs16(fp, &scene->k18dmg) || !rs16(fp, &scene->k18react))
         goto fail;
+    if (!rs16(fp, &scene->k13x) || !rs16(fp, &scene->k13y) || !rs16(fp, &scene->k13w) ||
+        !rs16(fp, &scene->k13h) || !rs16(fp, &scene->k13z) || !rs16(fp, &scene->k13zs) ||
+        !rs16(fp, &scene->k13dmg) || !rs16(fp, &scene->k13react))
+        goto fail;
+    if (!rs16(fp, &scene->k14x) || !rs16(fp, &scene->k14y) || !rs16(fp, &scene->k14w) ||
+        !rs16(fp, &scene->k14h) || !rs16(fp, &scene->k14z) || !rs16(fp, &scene->k14zs) ||
+        !rs16(fp, &scene->k14dmg) || !rs16(fp, &scene->k14react))
+        goto fail;
     if (!scene->jump || !scene->land || !scene->kick || !scene->ckick || !scene->akick ||
-        !scene->s8b || !scene->s8w || !scene->s8o || !scene->s8l || !scene->s8m)
+        !scene->s8b || !scene->s8w || !scene->s8o || !scene->s8l || !scene->s8m ||
+        !scene->dash || !scene->b48 || !scene->b50)
         goto fail;
     scene->trigger = -1;
     if (!scene->idle || !scene->walk || !scene->bash || !scene->will || !scene->p28 || !scene->p29 ||
@@ -462,7 +478,8 @@ static int ground_at(const Scene *scene, int x, int z) {
 typedef struct {
     int x_fp, z_fp, vx, vz, facing, act, frame, timer, shown;
     int punch_act, alt, hp, mode;
-    int y_fp, yv, ya;
+    int y_fp, yv, ya, xa;
+    int was_left, was_right, tap_l, tap_r;
 } Body;
 
 static void restart(Body *body, int act) {
@@ -498,6 +515,12 @@ static void strike(Scene *scene, Body *body, const Frame *pose) {
     } else if (body->punch_act == 46) {
         ax = scene->k18x; ay = scene->k18y; aw = scene->k18w; ah = scene->k18h;
         az = scene->k18z; azs = scene->k18zs; dmg = scene->k18dmg;
+    } else if (body->punch_act == 48) {
+        ax = scene->k13x; ay = scene->k13y; aw = scene->k13w; ah = scene->k13h;
+        az = scene->k13z; azs = scene->k13zs; dmg = scene->k13dmg;
+    } else if (body->punch_act == 50) {
+        ax = scene->k14x; ay = scene->k14y; aw = scene->k14w; ah = scene->k14h;
+        az = scene->k14z; azs = scene->k14zs; dmg = scene->k14dmg;
     } else {
         ax = scene->ax;
         ay = scene->ay;
@@ -527,6 +550,14 @@ static void strike(Scene *scene, Body *body, const Frame *pose) {
         foe->hit = 1;
         foe->hp -= scaled_damage(dmg, -1);
         if (foe->hp < 0) foe->hp = 0;
+        if (body->punch_act == 48) {
+            /* Reaction 8 calls SetFukiMove. The record index lives in +0x174,
+               which this slice does not recover, so only the damage is applied. */
+            foe->mode = 0;
+            foe->frame = 0;
+            foe->shown = 0;
+            continue;
+        }
         if (body->punch_act == 30) {
             /* Reaction 1: same Noke proc as reaction 2, defender act 8, full enemy timer. */
             foe->mode = 15;
@@ -564,6 +595,9 @@ static Frame *hero_pose(const Scene *scene, const Body *body) {
     if (body->mode == 4 && scene->n_jdie) return &scene->jdie[scene->n_jdie - 1];
     if (body->mode == 11 && scene->n_jump) return &scene->jump[body->frame % scene->n_jump];
     if (body->mode == 13 && scene->n_land) return &scene->land[body->frame % scene->n_land];
+    if (body->mode == 16 && scene->n_dash) return &scene->dash[body->frame % scene->n_dash];
+    if (body->punch_act == 48 && scene->n_b48) return &scene->b48[body->frame % scene->n_b48];
+    if (body->punch_act == 50 && scene->n_b50) return &scene->b50[body->frame % scene->n_b50];
     if (body->punch_act == 30 && scene->n_kick) return &scene->kick[body->frame % scene->n_kick];
     if (body->punch_act == 46 && scene->n_ckick) return &scene->ckick[body->frame % scene->n_ckick];
     if (body->punch_act == 31 && scene->n_akick) return &scene->akick[body->frame % scene->n_akick];
@@ -770,12 +804,17 @@ static int slide_axis(const Scene *scene, int fixed, int from, int to, int verti
         int pz = vertical ? nxt : fixed;
         int next_blocked = floor_blocked(scene, px, pz);
         int here_blocked = floor_blocked(scene, vertical ? fixed : cur, vertical ? cur : fixed);
-        /* FloorWallCheck walks subtiles toward a cell whose height is not
-           above the body. Here that is: do not enter a solid cell from a
-           free one, but do keep a step that is already inside the building
-           row and moving down in Z, which is how a wall entry leaves it. */
+        /* A free cell may be entered. A solid cell stops a step that
+           starts outside it. Format 0 has no free subtile, so a body that
+           is already inside and moving toward lower Z takes the failed-scan
+           store at 0x12ed8: pixel Z = Z - (Z & 15) - 1. */
         if (next_blocked && !here_blocked) break;
-        if (next_blocked && here_blocked && !(vertical && step < 0)) break;
+        if (next_blocked && here_blocked && vertical && step < 0) {
+            int edge = (cur & ~15) - 1;
+            if (edge < 0) edge = 0;
+            return edge;
+        }
+        if (next_blocked) break;
         cur = nxt;
     }
     return cur;
@@ -997,11 +1036,15 @@ static void step_foes(Scene *scene, Body *hero) {
             int wn;
             /* 0xe9c0 integrates +0x84 into Z before the state counter runs.
                State 0 stores that velocity afterwards, so the first tick
-               does not move. FloorWallCheck's sub-tile eject while the
-               body is already inside the building row is not re-solved;
-               the 11 velocity ticks are the ones this proc applies. */
+               does not move. MoveZ then calls FloorWallCheck. Inside the
+               format-0 building row the scan fails and Z becomes
+               (Z & ~15) - 1. The later ticks are on the sidewalk. */
             if (foe->wall_cc > 0) {
+                int ox = foe->x_fp >> 16;
+                int oz = foe->z_fp >> 16;
                 foe->z_fp += foe->z_vel;
+                slide_body(scene, &foe->x_fp, &foe->z_fp, ox, oz);
+                foe->x = foe->x_fp >> 16;
                 foe->z = foe->z_fp >> 16;
             }
             if (foe->wall_cc == 0) {
@@ -1321,14 +1364,15 @@ static void step_body(Scene *scene, Body *body, int left, int right, int up, int
         int n = body->mode == 14 ? scene->n_akick : scene->n_jump;
         body->y_fp += body->yv;
         body->yv += body->ya;
-        if (body->vx > 0) {
+        if (body->vx || body->xa) {
+            /* MoveX 0x11b20: x += vx, then vx += accel. It does not zero
+               vx when the accel carries it through zero. r2 = 1, so
+               FloorWallCheck runs on the new X. */
+            int ox = body->x_fp >> 16;
+            int oz = body->z_fp >> 16;
             body->x_fp += body->vx;
-            body->vx -= 16384;
-            if (body->vx < 0) body->vx = 0;
-        } else if (body->vx < 0) {
-            body->x_fp += body->vx;
-            body->vx += 16384;
-            if (body->vx > 0) body->vx = 0;
+            body->vx += body->xa;
+            slide_body(scene, &body->x_fp, &body->z_fp, ox, oz);
         }
         if (attack == 2 && body->mode == 11) {
             body->mode = 14;
@@ -1354,6 +1398,7 @@ static void step_body(Scene *scene, Body *body, int left, int right, int up, int
             body->yv = 0;
             body->ya = 0;
             body->vx = 0;
+            body->xa = 0;
             body->mode = 13;
             body->punch_act = 0;
             body->frame = 0;
@@ -1362,7 +1407,11 @@ static void step_body(Scene *scene, Body *body, int left, int right, int up, int
         return;
     }
     if (body->mode == 12 || body->mode == 13) {
-        int n = body->mode == 13 ? scene->n_land : (body->punch_act == 46 ? scene->n_ckick : scene->n_kick);
+        int n = scene->n_kick;
+        if (body->mode == 13) n = scene->n_land;
+        else if (body->punch_act == 46) n = scene->n_ckick;
+        else if (body->punch_act == 48) n = scene->n_b48;
+        else if (body->punch_act == 50) n = scene->n_b50;
         if (!body->shown) {
             body->timer = hero_pose(scene, body)->duration;
             body->shown = 1;
@@ -1383,6 +1432,38 @@ static void step_body(Scene *scene, Body *body, int left, int right, int up, int
             }
         }
         return;
+    }
+    if (body->mode == 16) {
+        /* DashMoveCheck keeps the dash while the matching direction is held.
+           Move record +0x28 is X vel -1048576, accel 0. Right negates it.
+           This has to run before the mode>=2 damage chain. */
+        {
+            int ox = body->x_fp >> 16;
+            int oz = body->z_fp >> 16;
+            body->x_fp += body->vx;
+            slide_body(scene, &body->x_fp, &body->z_fp, ox, oz);
+        }
+        if (scene->n_dash > 0) {
+            if (!body->shown) {
+                body->timer = scene->dash[0].duration;
+                body->shown = 1;
+            } else if (--body->timer <= 0) {
+                body->frame = (body->frame + 1) % scene->n_dash;
+                body->timer = scene->dash[body->frame].duration;
+            }
+        }
+        if (attack == 3) {
+            body->mode = 0;
+            body->vx = 0;
+        } else if ((body->facing == 0 && !left) || (body->facing == 1 && !right)) {
+            body->mode = 0;
+            body->vx = 0;
+            body->punch_act = 0;
+            restart(body, 0);
+            return;
+        } else {
+            return;
+        }
     }
     if (body->mode >= 2) {
         int n = 1;
@@ -1467,14 +1548,60 @@ static void step_body(Scene *scene, Body *body, int left, int right, int up, int
         }
         return;
     }
+    if (body->mode == 0 && body->punch_act == 0) {
+        if (left && !body->was_left) {
+            if (body->tap_l > 0) {
+                body->mode = 16;
+                body->facing = 0;
+                body->vx = -1048576;
+                body->xa = 0;
+                body->frame = 0;
+                body->shown = 0;
+                body->tap_l = 0;
+            } else body->tap_l = 16;
+        }
+        if (right && !body->was_right && body->mode == 0) {
+            if (body->tap_r > 0) {
+                body->mode = 16;
+                body->facing = 1;
+                body->vx = 1048576;
+                body->xa = 0;
+                body->frame = 0;
+                body->shown = 0;
+                body->tap_r = 0;
+            } else body->tap_r = 16;
+        }
+    }
+    body->was_left = left;
+    body->was_right = right;
+    if (body->tap_l > 0) body->tap_l--;
+    if (body->tap_r > 0) body->tap_r--;
+    if (body->mode == 16) return;
+    if (body->mode == 0 && body->punch_act == 0 && attack == 4) {
+        /* Edge bit 0x80. Held bit 1 (up, +Z) selects act 50. Held bit 4
+           (down) selects act 48. The no-direction grab is not recovered. */
+        if (up || down) {
+            body->mode = 12;
+            body->punch_act = up ? 50 : 48;
+            body->frame = 0;
+            body->timer = 0;
+            body->shown = 0;
+            body->vx = 0;
+            return;
+        }
+    }
     if (body->mode == 0 && body->punch_act == 0 && attack == 3) {
-        /* ciBillyMoveData neutral jump: Y vel -1048576, accel 212992.
-           Holding left or right uses the directed pair -393216 / 16384. */
+        /* ciBillyMoveData +0x18/-0x1c. Left keeps the record: vx -393216,
+           x accel +16384. Right negates both, so vx +393216 and accel -16384.
+           Y vel -1048576 and Y accel +212992 are not mirrored. */
         body->mode = 11;
         body->y_fp = 0xEF << 16;
         body->yv = -1048576;
         body->ya = 212992;
         body->vx = left ? -393216 : (right ? 393216 : 0);
+        body->xa = left ? 16384 : (right ? -16384 : 0);
+        if (left) body->facing = 0;
+        if (right) body->facing = 1;
         body->frame = 0;
         body->shown = 0;
         body->punch_act = 0;
@@ -1727,7 +1854,7 @@ static void route_buttons(Scene *scene, Body *hero, int *left, int *right, int *
 #if defined(_WIN32)
 #include <windows.h>
 
-static int g_left, g_right, g_up, g_down, g_atk, g_kick, g_jump, g_quit;
+static int g_left, g_right, g_up, g_down, g_atk, g_kick, g_jump, g_b7, g_quit;
 static uint8_t *g_fb;
 
 typedef struct {
@@ -1749,6 +1876,7 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         if (wp == 'J') g_atk = down;
         if (wp == 'K') g_kick = down;
         if (wp == VK_SPACE) g_jump = down;
+        if (wp == 'U') g_b7 = down;
         if (wp == VK_ESCAPE) g_quit = 1;
         return 0;
     }
@@ -1772,7 +1900,7 @@ static int run_window(Scene *scene) {
     WNDCLASS wc;
     HWND hwnd;
     Body hero;
-    int was_atk = 0, was_kick = 0, was_jump = 0;
+    int was_atk = 0, was_kick = 0, was_jump = 0, was_b7 = 0;
     MSG msg;
     memset(&wc, 0, sizeof(wc));
     wc.lpfnWndProc = wnd_proc;
@@ -1815,12 +1943,14 @@ static int run_window(Scene *scene) {
             {
                 int action = 0;
                 if (g_jump && !was_jump) action = 3;
+                else if (g_b7 && !was_b7) action = 4;
                 else if (g_kick && !was_kick) action = 2;
                 else if (g_atk && !was_atk) action = 1;
                 step_body(scene, &hero, g_left, g_right, g_up, g_down, action);
                 was_atk = g_atk;
                 was_kick = g_kick;
                 was_jump = g_jump;
+                was_b7 = g_b7;
             }
         }
         paint(scene, &hero, g_fb);
@@ -1844,7 +1974,8 @@ static int run_window(Scene *scene) {
     Body hero;
     uint8_t *fb;
     uint8_t *scaled;
-    int atk = 0, kick = 0, jump = 0, was_atk = 0, was_kick = 0, was_jump = 0;
+    int atk = 0, kick = 0, jump = 0, b7 = 0;
+    int was_atk = 0, was_kick = 0, was_jump = 0, was_b7 = 0;
     int left = 0, right = 0, up = 0, down = 0;
     if (!display) {
         fprintf(stderr, "no X display\n");
@@ -1882,17 +2013,20 @@ static int run_window(Scene *scene) {
             if (key == XK_j) atk = pressed;
             if (key == XK_k) kick = pressed;
             if (key == XK_space) jump = pressed;
+            if (key == XK_u) b7 = pressed;
             if (key == XK_Escape) goto done;
         }
         {
             int action = 0;
             if (jump && !was_jump) action = 3;
+            else if (b7 && !was_b7) action = 4;
             else if (kick && !was_kick) action = 2;
             else if (atk && !was_atk) action = 1;
             step_body(scene, &hero, left, right, up, down, action);
             was_atk = atk;
             was_kick = kick;
             was_jump = jump;
+            was_b7 = b7;
         }
         paint(scene, &hero, fb);
         {
@@ -1973,6 +2107,25 @@ static int run_dump(Scene *scene, const char *path, int frames, int hold) {
         spawn_enemy(scene, 120, 56, 40, 2, 0, 0);
         hero.facing = 1;
     }
+    if (hold == 21) {
+        int f;
+        for (f = 0; f < scene->n_foes; f++) scene->foes[f].alive = 0;
+        spawn_enemy(scene, 90, 56, 40, 2, 0, 0);
+        hero.facing = 1;
+    }
+    if (hold == 22) {
+        int f;
+        /* Act 48's box only reaches 3px past the origin when facing right. */
+        for (f = 0; f < scene->n_foes; f++) scene->foes[f].alive = 0;
+        spawn_enemy(scene, 70, 56, 40, 2, 0, 0);
+        hero.facing = 1;
+    }
+    if (hold == 23) {
+        int f;
+        for (f = 0; f < scene->n_foes; f++) scene->foes[f].alive = 0;
+        /* Flag 0x130: count, no push, GT_EnemyWallEntry. Born at Z 76. */
+        spawn_enemy(scene, 767, 76, 40, 1, 0x130, 0);
+    }
     for (i = 0; i < frames; i++) {
         int left = hold == 1, right = hold == 2 || hold == 5 || hold == 7, up = hold == 3, down = hold == 4;
         int attack = 0;
@@ -2009,6 +2162,11 @@ static int run_dump(Scene *scene, const char *path, int frames, int hold) {
         if (hold == 15) route_buttons(scene, &hero, &left, &right, &attack);
         if (hold == 16 && i == 0) attack = 3;
         if (hold == 17 && i == 2) attack = 2;
+        if (hold == 18) { right = 1; if (i == 0) attack = 3; }
+        if (hold == 19) { left = 1; if (i == 0) attack = 3; }
+        if (hold == 20 && (i == 0 || i >= 8)) right = 1;
+        if (hold == 21 && i == 0) { up = 1; attack = 4; }
+        if (hold == 22 && i == 0) { down = 1; attack = 4; }
         if (hold == 14 && (i == 43 || i == 132)) {
             int f;
             for (f = 0; f < scene->n_foes; f++) {
@@ -2034,7 +2192,7 @@ static int run_dump(Scene *scene, const char *path, int frames, int hold) {
            hero.act, hero.frame, hero.facing);
     printf("cam %d lock %d nf %d\n", scene->camera, scene->lock_i, scene->n_foes);
     if ((hold >= 5 && hold <= 9) || hold == 12 || hold == 13 || hold == 14 || hold == 15 ||
-        hold == 16 || hold == 17) {
+        hold == 16 || hold == 17 || hold == 21 || hold == 22 || hold == 23) {
         printf("hp %d", hero.hp);
         for (i = 0; i < scene->n_foes; i++) printf(" %d", scene->foes[i].hp);
         printf(" x");
@@ -2043,6 +2201,11 @@ static int run_dump(Scene *scene, const char *path, int frames, int hold) {
         for (i = 0; i < scene->n_foes; i++) printf(" %d", scene->foes[i].mode);
         printf(" pm %d y %d cam %d lock %d nf %d ph %d q %d\n", hero.mode, hero.y_fp >> 16,
                scene->camera, scene->lock_i, scene->n_foes, scene->phase, scene->quota);
+        if (hold == 23) {
+            printf("fz");
+            for (i = 0; i < scene->n_foes; i++) printf(" %d", scene->foes[i].z);
+            printf("\n");
+        }
     }
     return 0;
 }
@@ -2068,6 +2231,12 @@ int main(int argc, char **argv) {
         if (argc > 5 && strcmp(argv[5], "route") == 0) hold = 15;
         if (argc > 5 && strcmp(argv[5], "jump") == 0) hold = 16;
         if (argc > 5 && strcmp(argv[5], "kick") == 0) hold = 17;
+        if (argc > 5 && strcmp(argv[5], "jumpr") == 0) hold = 18;
+        if (argc > 5 && strcmp(argv[5], "jumpl") == 0) hold = 19;
+        if (argc > 5 && strcmp(argv[5], "dash") == 0) hold = 20;
+        if (argc > 5 && strcmp(argv[5], "b7") == 0) hold = 21;
+        if (argc > 5 && strcmp(argv[5], "b7d") == 0) hold = 22;
+        if (argc > 5 && strcmp(argv[5], "entry") == 0) hold = 23;
         scene = load_scene(bin);
         if (!scene) {
             fprintf(stderr, "could not read %s\n", bin);

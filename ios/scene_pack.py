@@ -220,7 +220,7 @@ def build(blob: bytes, obm_zip: Path) -> tuple[bytes, dict]:
     payload += struct.pack(
         "<4sHHHiiiiiiiiiiHHHH",
         b"DD1S",
-        11,
+        12,
         480,
         320,
         info["pixel_w"],
@@ -373,12 +373,21 @@ def build(blob: bytes, obm_zip: Path) -> tuple[bytes, dict]:
     s8o = hold10(_frames(blob, sheets, names, zako_rects, zako_pat, zako_points, bolo_img, 0xB2398, 0xB23D0))
     s8l = hold10(_frames(blob, sheets, names, linda_rects, linda_pat, linda_points, linda_img, 0xB334C, 0xB3384))
     s8m = hold10(_frames(blob, sheets, names, macho_rects, macho_pat, macho_points, macho_img, 0xB4FF0, 0xB5028))
-    extra = (jump, land, kick, ckick, akick, s8b, s8w, s8o, s8l, s8m)
-    payload += struct.pack("<10H", *(len(g) for g in extra))
+    dash = _frames(blob, sheets, names, jrect, jpat, jpoint, jimmy_img, 0xAA190, 0xAA1EC)
+    b48 = _frames(blob, sheets, names, jrect, jpat, jpoint, jimmy_img, 0xAADAC, 0xAAE24)
+    b50_raw, _op = act_span(blob, 0xAAED0, 0xAAF7C)
+    b50 = []
+    for frame in b50_raw:
+        if not (0 < frame.duration <= 20 and 0 <= frame.pattern < 200):
+            continue
+        image, ox, oy = _pose(sheets, jrect, jimmy_img, names, pattern_parts(jpat, jpoint, frame.pattern))
+        b50.append((frame.duration, frame.flags, ox, oy, image))
+    extra = (jump, land, kick, ckick, akick, s8b, s8w, s8o, s8l, s8m, dash, b48, b50)
+    payload += struct.pack("<13H", *(len(g) for g in extra))
     for group in extra:
         put_group(group)
     # ciJimmyAtkData records 3 (far kick), 4 (air kick) and 18 (close kick).
-    for index in (3, 4, 18):
+    for index in (3, 4, 18, 13, 14):
         rec = blob[va_to_offset(0xC67C4 + index * 26) : va_to_offset(0xC67C4 + index * 26 + 20)]
         x, y, w, h, z, zs, dmg = struct.unpack_from("<7h", rec)
         payload += struct.pack("<8h", x, y, w, h, z, zs, dmg, rec[0x11])

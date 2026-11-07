@@ -128,15 +128,62 @@ class SceneDumpTest(unittest.TestCase):
         self.assertIn(" 25 x", text)
         self.assertIn("m 0 0 2", text)
 
+    def test_directed_jump_keeps_vx_and_accel_as_separate_signs(self):
+        # ciBillyMoveData +0x18 is vx -393216 and +0x1c is accel +16384.
+        # Facing right negates both. One MoveX tick is 6px. Y is not mirrored.
+        right = self.dump(2, "jumpr").splitlines()[0]
+        left = self.dump(2, "jumpl").splitlines()[0]
+        self.assertEqual(right, "x 66 z 56 act 0 frame 0 facing 1")
+        self.assertEqual(left, "x 54 z 56 act 0 frame 0 facing 0")
+
+    def test_double_tap_dash_moves_sixteen_pixels(self):
+        # Record +0x28 is X vel -1048576. Right negates it. The second tap
+        # is frame 8, so frame 9 has not stepped yet and frame 12 has three.
+        armed = self.dump(9, "dash").splitlines()[0]
+        moved = self.dump(12, "dash").splitlines()[0]
+        self.assertEqual(armed, "x 65 z 56 act 0 frame 0 facing 1")
+        self.assertIn("x 113 ", moved)
+        self.assertIn("facing 1", moved)
+
+    def test_button7_up_is_reaction_five_and_down_only_damages(self):
+        # Act 50, record 14, damage 12. Enemy scale adds half: 40 becomes 22,
+        # and reaction 5 is the same knockdown as a close kick.
+        up = self.dump(8, "b7")
+        self.assertIn("hp 100 40 30 22", up)
+        self.assertIn("m 0 0 2", up)
+        # Act 48, record 13, damage 15, scales to 22. Reaction 8's defender
+        # act is not recovered, so the foe is not put into the knockdown.
+        down = self.dump(8, "b7d")
+        self.assertIn("hp 100 40 30 18", down)
+        self.assertIn("m 0 0 0", down)
+
+    def test_wall_entry_ejects_to_the_cell_edge_then_walks_out(self):
+        # First velocity tick is 76 to 74, still inside the format-0 row,
+        # so FloorWallCheck stores (Z & ~15) - 1 = 63. Ten later ticks of
+        # -2px land on the sidewalk at 43.
+        first = self.dump(2, "entry")
+        done = self.dump(12, "entry")
+        self.assertIn("fz 56 8 63", first)
+        self.assertIn("fz 56 8 43", done)
+
     def test_scripted_kicks_open_the_door(self):
-        # Kick and jump only. No quota hook. Frame 1092 is phase 1,
-        # before the extra-10 enemy is in the list. Frame 1096 has him.
-        opening = self.dump(1092, "route")
-        spawned = self.dump(1096, "route")
+        # Kick only. No quota hook. Phase becomes 1 at frame 1096, while
+        # the extra-10 enemy is still absent. He is in the list at 1100.
+        opening = self.dump(1096, "route")
+        spawned = self.dump(1100, "route")
         self.assertIn("ph 1", opening)
         self.assertIn("nf 9", opening)
         self.assertIn("ph 1", spawned)
         self.assertIn("nf 10", spawned)
+
+    def test_scripted_route_dies_before_the_phase2_wall(self):
+        # The door pair is still at 40 and 30 when Jimmy reaches 0 HP.
+        # Phase stays 1. This is the measured input, not a forced lock.
+        text = self.dump(1600, "route")
+        self.assertIn("hp 0 ", text)
+        self.assertIn("pm 4", text)
+        self.assertIn("ph 1", text)
+        self.assertIn("40 30", text)
 
     def test_player_loss_stays_down(self):
         text = self.dump(700, "crowd")

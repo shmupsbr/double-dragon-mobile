@@ -6,6 +6,7 @@ port/build/
 *.exe
 *.so
 *.pak
+ios/scene_view
 
 # Extrações de trabalho
 /tmp/

@@ -20,6 +20,6 @@ Os originais em `investigation/original/` ficam de fora do git.
 
 ## Windows
 
-Não há build Windows do jogo. O binário do jogo é ARM e ainda está cifrado. Um emulador Android no Windows seria a rota honesta para o runtime original, e só depois que o cache estiver completo. Isso não foi executado aqui.
+A base agora é o `ddiPhone` iOS, com `cryptid` 0. Não é código-fonte: o slice armv7 está legível e os símbolos batem com as tabelas. A cena 1 está em `ios/`: mapa de chips, Jimmy nos atos 0 e 1, um BASH com a folha dele. Como gerar o pacote e o que ainda não foi recuperado: `ios/README.md`.
 
-A base de implementação passou a ser o `ddiPhone` de iOS, com `cryptid` 0. As tabelas de pose estão em `ios/`. O `ddslum` em `port/` é o protótipo antigo, com recortes errados, e não vale como animação original. O módulo Android continua cifrado: `docs/RESULTADO.md`.
+O `port/ddslum` é o protótipo antigo e não vale como regra de luta. O módulo Android continua cifrado: `docs/RESULTADO.md`. Os originais não entram no git.

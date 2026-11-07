@@ -1,29 +1,52 @@
-# Base iOS — tabelas de animação
+# Cena 1 a partir do ddiPhone
 
-O protótipo Android anterior cortava pedaços soltos da folha. Essa base está abandonada. O executável desta edição iOS está legível.
+O executável iOS está legível. `LC_ENCRYPTION_INFO` existe e `cryptid` é 0 nos dois slices. Isso é código de máquina com símbolos, não código-fonte.
 
-Build: `com.bowmobile.doubledragon.US`, `ddiPhone` 1.00.01. Não é o pacote G-gee. As folhas OBM decodificadas coincidem com as do Android; isso só prova o desenho da folha, não o recorte nem a montagem.
+A cena abaixo usa só o que o slice armv7 guarda. O `port/ddslum` antigo não entra nessa conta.
 
-`LC_ENCRYPTION_INFO` existe nos dois slices ARM e `cryptid` é 0. Conferido de novo no binário sanitizado, não só no relatório que veio junto.
+## O que a cena faz
 
-## O que o código guarda
+Janela 480×320, desenhada em dobro. Jimmy nasce em X=60, Z=56 (`csStage01ScrollSet` +0x0c e +0x10, lidos por `GT_CreatePlayerTask` em `0xabe0`). O chão desse tile é 239 (`FloorGroundSet` em `0x12a44`, registro 1 da lista, altura 0). A origem na tela é `chão − Z`.
 
-Cada peça é um `_IMG_RECT` de oito `int16`: `x, y, w, h, px, py, imagem, extra`. O endereço no slice armv7 é o valor do símbolo.
+Setas ou WASD repetem os eixos de `GT_MoveCheck` (`0x36820`):
 
-`ciJimmyRect` = `0x9B064` (864 peças). `ciJimmyPat` = `0x9E664` lista os índices e fecha cada pose com `-1`. `ciJimmyPatPoint` = `0x9F438` diz onde cada pose começa. O pivô cai na origem do personagem: a peça é desenhada em `(-px, -py)`. A pose 0 junta as peças 0, 1, 2 e 3 e fica mais alta do que qualquer peça sozinha. É o corpo inteiro, com pé.
+- Direita é o índice 3: velocidade X = −`ciBillyMoveData[0]` = +360448 em 16.16 (+5,5 px por quadro), `facing` 1, ato 1.
+- Esquerda é o índice 1: velocidade X = `ciBillyMoveData[0]` = −360448, `facing` 0, ato 1.
+- Cima é o índice 0: velocidade Z = +262144 (+4 px), ato não muda.
+- Baixo é o índice 2: velocidade Z = −262144.
+- Sem direção, `GT_ReadySet` (`0xf8e8`) zera a velocidade e volta ao ato 0.
 
-`ciJimmyAct_000` = `0xA9FCC` é bytecode de `int32`. Palavra negativa é opcode (`Act_AI_*` em `ActionInit`). Palavra positiva abre a tripla duração, flags, padrão. O ato 0, depois do `Act_AI_HITP` (opcode 9, três argumentos), mostra os padrões 0, 1, 2, 3, 4 com durações 2, 1, 2, 1, 2 e termina em `Act_AI_LOOP` (opcode 3). `GT_BillyRunStart` grava o ato 0 em `GT_ActionSet` no endereço `0x2d53a`. A imagem desse ciclo é troca de peso em pé, com as duas pernas e os pés. Não é uma passada de corrida.
+O ponteiro de `ciBillyMoveData` (`0xc6398`) é gravado em `applet+0x4fa8` (tipo 0, Billy) e em `applet+0x4fac` (tipo 1). O registro 1 de `csPlayerCharLoadData` (`0xa84ec`) é o Jimmy: tipo 1, folhas 16 e 17, `JIMMY_1.obm` e `JIMMY_2.obm`.
 
-O ato 6 (`ciJimmyAct_006`) percorre os padrões 15 a 20, um quadro cada, e é um golpe em que o corpo se estica. O ato 9 segura o padrão 25: o corpo deitado, também inteiro. O dano e a queda não foram medidos em pontos de vida; a tabela `ci*AtkData` ainda não foi decodificada.
+O ato 0 (`ciJimmyAct_000`, `0xa9fcc`) é a troca de peso: durações 2, 1, 2, 1, 2, padrões 0–4, opcode 3 (`Act_AI_LOOP`). O ato 1 (`0xaa01c`) é a passada: 2, 1, 1, 2, 2, padrões 5–9, também `LOOP`. `ActionSub` (`0xd130`) conta a duração em quadros.
 
-`ciZakoC00` é outra tabela, no mesmo formato. A pose 0, desenhada em `WILLIAMS.obm` com imagem local 0, fecha um inimigo de corpo inteiro. A mesma lista de retângulos não fecha em `MACHO` nem em `SUIT`. O número global em `ciZakoC00ImgNo` não é o nome do arquivo; o vínculo do arquivo é essa montagem, não uma string no binário.
+O mapa é `ciStage01MapChip` (`0x65498`) e `ciStage01MapChipNear` (`0x663c0`). `csStage01MapRange` diz 97×20 tiles, 1552×320 px. `MapChipDraw` (`0x12f24`) indexa `altura * coluna + linha`. Tile negativo some. Os outros usam `tx = id & 31`, `ty = id >> 5`, 16 px, folha `AREA1_CHIP.obm`. A camada near entra primeiro e rola com a câmera deslocada 2 bits.
 
-## O que isto ainda não é
+O inimigo é o zako C00: retângulos `ciZakoC00Rect`, imagem local 0 → nome 21 → `BASH.obm`. O ato 0 (`0xb2174`) repete os padrões 0–5, dois quadros cada. A posição X=160 é desta vista. `csStage01EncEnemyData` não foi decodificado, então esse X não é um spawn original.
 
-Não há cena jogável nova. O `port/ddslum` antigo continua no repositório como histórico e não deve ser usado como regra de luta. Falta o mapa de chips e a escolha de ato dentro de cada estado (andar para a frente, soco, chute) além dos três atos acima. O limite agora é essa máquina de estados e o mapa, não o retângulo da folha.
+`ciDrawFlag` (`0x604d0`) troca 0↔1 quando `facing` é 1. A vista espelha o corpo nesse caso. O sombreador que consome a flag não foi aberto instrução por instrução; o espelho é a leitura dessa troca.
 
-O binário sanitizado não entra no git. Os testes leem `/tmp/ios-work/binary/ddiPhone`.
+## O que ainda não é o jogo
+
+Não há soco, dano, vida, IA, nem a tabela de encontro. O muro de `FloorWallCheck` não está ligado; o limite é a largura do mapa e Z 0..95, que é o teste de altura do chão (`header+0x0e` = 7). O ângulo do analógico em `GamePad::SetKey` cai nos mesmos quatro índices, mas a ordem dos argumentos do `atan` não foi fechada; o teclado segue o sinal da velocidade, não um desenho do stick.
+
+## Como rodar
+
+O Mach-O sanitizado e o zip das OBM ficam fora do git.
 
 ```bash
-PYTHONPATH=/workspace python3 -m unittest tests.test_ios_anim -v
+PYTHONPATH=/workspace python3 -m ios.scene_pack \
+  --macho /tmp/ios-work/binary/ddiPhone \
+  --obm /caminho/02_resources_obm_d64a.zip \
+  --out scene.bin
+make -C ios linux
+./ios/scene_view scene.bin
+./ios/scene_view scene.bin --dump quadro.ppm 16 right
+make -C ios windows
+```
+
+O `.exe` foi compilado e executado com Wine no modo `--dump` (16 quadros para a direita). A saída foi `x 148 z 56 act 1 frame 4 facing 1`, igual à do binário Linux. A janela Win32 não foi aberta nesse modo.
+
+```bash
+PYTHONPATH=/workspace python3 -m unittest tests.test_ios_anim tests.test_scene_dump -v
 ```

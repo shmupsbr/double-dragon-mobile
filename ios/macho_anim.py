@@ -55,10 +55,26 @@ JIMMY_PAT = 0x9E664
 JIMMY_PAT_POINT = 0x9F438
 JIMMY_IMG = 0x9F690
 JIMMY_ACT0 = 0xA9FCC
+JIMMY_ACT1 = 0xAA01C
 BILLY_RECT = 0x9692A
+BILLY_MOVE = 0xC6398
 ZAKO_C00_RECT = 0x7CD92
 ZAKO_C00_PAT = 0x7DF42
 ZAKO_C00_PAT_POINT = 0x7E48A
+ZAKO_C00_IMG = 0x7E56A
+ZAKO_C00_ACT0 = 0xB2174
+NAME_TABLE = 0x5EAB0
+NAME_SLOT = 0x20
+STAGE1_RANGE = 0x650B0
+STAGE1_SCROLL = 0x650DC
+STAGE1_FLOOR_LIST = 0x6517C
+STAGE1_FLOOR = 0x651B8
+STAGE1_CHIP = 0x65498
+STAGE1_CHIP_NEAR = 0x663C0
+FLOOR_FORMAT = 0xC2A9C
+DRAW_FLAG = 0x604D0
+KEY_CONFIG = 0xC2A04
+PLAYER_CHAR = 0xA84EC
 
 
 @dataclass
@@ -187,8 +203,105 @@ def jimmy_tables(blob: bytes) -> tuple[list[Rect], list[int], list[int]]:
 
 def jimmy_act0(blob: bytes) -> tuple[list[Frame], int]:
     # Act 1 starts 0x50 bytes later; that gap is the symbol span of act 0.
-    words = read_i32(blob, JIMMY_ACT0, 0x50 // 4)
+    words = read_i32(blob, JIMMY_ACT0, (JIMMY_ACT1 - JIMMY_ACT0) // 4)
     return parse_act(words)
+
+
+def act_span(blob: bytes, va: int, end: int) -> tuple[list[Frame], int]:
+    words = read_i32(blob, va, (end - va) // 4)
+    return parse_act(words)
+
+
+def resource_name(blob: bytes, index: int) -> str:
+    raw = _load(blob, NAME_TABLE + index * NAME_SLOT, NAME_SLOT)
+    return raw.split(b"\x00", 1)[0].decode("ascii")
+
+
+def stage1_map(blob: bytes) -> dict:
+    """ciStage01MapChip is column-major. MapChipDraw indexes height * x + y.
+
+    A negative id is skipped. Otherwise tx = id & 31 and ty = id >> 5,
+    and the chip is 16 by 16. The header is csStage01MapRange.
+    """
+    header = read_i16(blob, STAGE1_RANGE, 0x12)
+    width = header[4]
+    height = header[5]
+    count = width * height
+    main = read_i16(blob, STAGE1_CHIP, count * 2)
+    near = read_i16(blob, STAGE1_CHIP_NEAR, count * 2)
+    return {
+        "pixel_w": header[0],
+        "pixel_h": header[2],
+        "width": width,
+        "height": height,
+        "floor_w": header[6],
+        "floor_h": header[7],
+        "origin_x": header[8],
+        "main": main,
+        "near": near,
+    }
+
+
+def stage1_spawn(blob: bytes) -> tuple[int, int]:
+    """Player 0 position from csStage01ScrollSet.
+
+    GT_CreatePlayerTask reads +0xc into task+0x5c (X) and +0x10 into
+    task+0x7c (Z). Both are pixel values, then shifted into 16.16.
+    """
+    words = read_i32(blob, STAGE1_SCROLL, 8)
+    return words[3], words[4]
+
+
+def billy_move(blob: bytes) -> tuple[int, int]:
+    """First two int32 of ciBillyMoveData. 16.16 fixed point.
+
+    The installer stores this pointer at applet+0x4fa8 (type 0, Billy)
+    and at applet+0x4fac (type 1, Jimmy). GT_MoveCheck uses +0 for X
+    and +4 for Z.
+    """
+    words = read_i32(blob, BILLY_MOVE, 2)
+    return words[0], words[1]
+
+
+def player_char(blob: bytes, index: int) -> tuple[int, int, int, int]:
+    """csPlayerCharLoadData records are 12 bytes.
+
+    Field 0 is the task type at +0x28. Field 1 is the draw set.
+    Fields 2 and 3 are resource-name indexes.
+    """
+    raw = _load(blob, PLAYER_CHAR + index * 12, 12)
+    return struct.unpack("<6h", raw)[:4]
+
+
+def draw_flags(blob: bytes) -> list[int]:
+    """ciDrawFlag. DirectImageDraw indexes extra + (facing_combo << 2)."""
+    return read_i32(blob, DRAW_FLAG, 16)
+
+
+def key_config(blob: bytes) -> list[int]:
+    """cuiDefaultKeyConfig. Button index ip matches raw key bit mask[ip]."""
+    return read_i32(blob, KEY_CONFIG, 16)
+
+
+def floor_ground(blob: bytes, x: int, z: int) -> int | None:
+    """Pixel ground Y from FloorGroundSet, or None when the tile is outside.
+
+    Screen Y of the character origin is this value minus Z. The height
+    word 99999 is the void record and is returned as 0xEF - 99999.
+    """
+    info = stage1_map(blob)
+    tile_x = info["origin_x"] + (x >> 4)
+    tile_y = (z >> 4) + 1
+    if tile_x < 0 or tile_y < 0 or tile_x >= info["floor_w"] or tile_y >= info["floor_h"]:
+        return None
+    floors = _load(blob, STAGE1_FLOOR, info["floor_w"] * info["floor_h"])
+    which = floors[info["floor_w"] * tile_y + tile_x]
+    rec = read_i32(blob, STAGE1_FLOOR_LIST + which * 20, 5)
+    fmt = struct.unpack_from("<h", struct.pack("<i", rec[0]), 2)[0]
+    masks = _load(blob, FLOOR_FORMAT + (fmt << 8), 256)
+    bit = masks[((z & 15) << 4) + (x & 15)]
+    height = rec[1] if bit == 0 else rec[2]
+    return 0xEF - height
 
 
 def compose_box(rects: list[Rect], part_ids: list[int]) -> tuple[int, int, int, int]:

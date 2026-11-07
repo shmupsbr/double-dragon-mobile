@@ -216,7 +216,7 @@ def build(blob: bytes, obm_zip: Path) -> tuple[bytes, dict]:
     payload += struct.pack(
         "<4sHHHiiiiiiiiiiHHHH",
         b"DD1S",
-        7,
+        8,
         480,
         320,
         info["pixel_w"],
@@ -282,6 +282,12 @@ def build(blob: bytes, obm_zip: Path) -> tuple[bytes, dict]:
     )
     for group in (lidle, lwalk, lpunch, ldown, lland, lfall, lget, llie, ldie):
         put_group(group)
+    jstun = _frames(blob, sheets, names, jimmy_rects, jimmy_pat, jimmy_points, jimmy_img, 0xAA1EC, 0xAA224)
+    # Act 7's middle word is 9999. The reaction proc holds it only while +0x140 > 0.
+    # Record 0's timer is 10, and a player (+0x16d >= 0) keeps half of that.
+    jstun = [(5 if dur > 100 else dur, flags, ox, oy, image) for dur, flags, ox, oy, image in jstun]
+    payload += struct.pack("<H", len(jstun))
+    put_group(jstun)
     tiles, fmt5 = floor_bytes(blob)
     payload += tiles
     payload += fmt5

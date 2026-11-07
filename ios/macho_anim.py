@@ -356,6 +356,23 @@ def hero_hp(blob: bytes, index: int) -> int:
     return struct.unpack("<h", raw)[0]
 
 
+def push_x(self_x: int, self_face: int, other_x: int, other_face: int, delta: int) -> int:
+    """PushHitCheckX separation. Index-1 box xoff=-17, width=29.
+
+    Both facing 0 and moving right lands on other_x - 30.
+    """
+    xoff, width = -17, 29
+    if delta > 0:
+        edge = other_x - xoff - width if other_face else other_x + xoff
+        neu = xoff + edge if self_face else (edge - width) - xoff
+        return neu - 1
+    if delta < 0:
+        edge = other_x - xoff if other_face else other_x + width + xoff
+        neu = xoff + width + edge if self_face else edge - xoff
+        return neu + 1
+    return self_x
+
+
 def zako_move(blob: bytes) -> tuple[int, int]:
     words = read_i32(blob, ZAKO_MOVE, 2)
     return words[0], words[1]

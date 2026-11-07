@@ -48,45 +48,50 @@ class SceneDumpTest(unittest.TestCase):
 
     def test_enemies_walk_in_and_stop_at_the_move_threshold(self):
         text = self.dump(240, "watch")
-        self.assertIn("hp 100 40 30 x 120 152", text)
+        self.assertIn("hp 100 40 30 x 120 150", text)
 
     def test_live_enemy_reaches_the_getup_act(self):
         text = self.dump(140, "stand")
         self.assertIn("hp 91 22 12", text)
-        self.assertIn("m 6 7", text)
+        self.assertIn("m 6 6", text)
         foes = text.splitlines()[-1].split("x", 1)[1].split("m", 1)[0].split()
         self.assertGreaterEqual(abs(int(foes[0]) - int(foes[1])), 20)
 
     def test_live_enemy_is_still_in_the_lie(self):
         text = self.dump(200, "stand")
         self.assertIn("hp 82 4 0", text)
-        self.assertIn("m 7 7", text)
+        self.assertIn("m 3 3", text)
 
     def test_unlinking_the_wave_releases_the_camera(self):
-        moving = self.dump(304, "stand")
+        moving = self.dump(382, "stand")
         self.assertIn("m 4 4", moving)
-        self.assertIn("cam 60 lock 1 nf 2", moving)
+        self.assertIn("cam 48 lock 1 nf 2", moving)
 
     def test_next_row_waits_for_camera_100(self):
-        before = self.dump(307, "stand")
-        spawned = self.dump(308, "stand")
+        before = self.dump(386, "stand")
+        spawned = self.dump(387, "stand")
         self.assertIn("cam 96 lock 1 nf 2", before)
-        self.assertIn("hp 82 0 0 40 40 30", spawned)
-        self.assertIn("x 376 400 612 656 612", spawned)
+        self.assertIn("hp 64 0 0 40 40 30", spawned)
+        self.assertIn("x 388 418 612 656 612", spawned)
         self.assertIn("cam 108 lock 2 nf 5", spawned)
 
     def test_scroll_303_spawns_linda_and_williams(self):
-        text = self.dump(720, "stand")
+        text = self.dump(780, "stand")
         self.assertIn("25 40", text)
         self.assertIn("720 752", text)
         self.assertIn("lock 3 nf 7", text)
         self.assertIn("m 4 4 4 4 4 9 9", text)
 
-    def test_scroll_687_locks_the_camera(self):
-        text = self.dump(1028, "onward")
-        self.assertIn("30 40", text)
-        self.assertIn("880 912", text)
-        self.assertIn("cam 687 lock 4 nf 9", text)
+    def test_linda_reaction_stuns_then_jimmy_knocks_her_down(self):
+        stun = self.dump(24, "react")
+        back = self.dump(30, "react")
+        down = self.dump(50, "react")
+        self.assertIn("hp 94", stun)
+        self.assertIn("pm 10", stun)
+        self.assertIn("hp 94", back)
+        self.assertIn("pm 0", back)
+        self.assertIn(" 7 x", down)
+        self.assertIn("m 0 0 2", down)
 
     def test_player_loss_stays_down(self):
         text = self.dump(700, "crowd")

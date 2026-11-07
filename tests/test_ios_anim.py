@@ -28,6 +28,7 @@ from ios.macho_anim import (
     hero_hp,
     hurt_record,
     zako_attack_record,
+    push_x,
     zako_move,
     jimmy_act0,
     jimmy_tables,
@@ -219,6 +220,20 @@ class IosAnimTest(unittest.TestCase):
             (8, 656, 32, 40, 7),
             (4, 612, 8, 30, 6),
         ])
+
+    def test_push_x_matches_the_rightward_edge(self):
+        self.assertEqual(push_x(0, 0, 100, 0, 1), 70)
+        self.assertEqual(push_x(100, 0, 0, 0, -1), 30)
+        self.assertEqual(push_x(40, 0, 40, 0, 0), 40)
+
+    def test_linda_reaction_is_two_and_uses_hitstun_zero(self):
+        import struct
+        raw = self.blob[va_to_offset(0xC6CB0 + 6 * 26) : va_to_offset(0xC6CB0 + 7 * 26)]
+        self.assertEqual(raw[0x0C] | (raw[0x0D] << 8), 3)
+        self.assertEqual(raw[0x0E], 0)
+        self.assertEqual(raw[0x11], 2)
+        rec = struct.unpack_from("<iii", self.blob, va_to_offset(0xC5464))
+        self.assertEqual(rec, (-262144, 81920, 10))
 
     def test_deferred_rows_stay_out_of_the_dispatch(self):
         done, deferred = encounter_rows(self.blob)

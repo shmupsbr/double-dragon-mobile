@@ -10,7 +10,7 @@ O APK `com.ggee.vividruntime.gg_1327` 2.9.0 é o runtime Android (armeabi). O `r
 
 ```bash
 cd /workspace
-PYTHONPATH=/workspace python3 -m unittest tests.test_loader_trace -v
+PYTHONPATH=/workspace python3 -m unittest tests.test_ro_audit tests.test_envelope tests.test_loader_trace -v
 PYTHONPATH=/workspace python3 tools/audit_cache.py \
   --apk investigation/original/DoubleDragon.apk \
   --cache investigation/original/RuntimeApps/gg/1327

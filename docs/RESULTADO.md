@@ -46,7 +46,7 @@ O pipeline chama `0x8577c` com esse modo. Para `r8<=1`, o que o código faz prim
 
 `0x7e500` abre a string `/data/keystore.dat` e a entrega a `0x90f98`, a mesma rotina usada para `datastore.dat`. Antes disso há um laço que faz XOR de um buffer com a constante `oYga9NQJHQqbnZhe` e imediatos embutidos. Isso é máscara do arquivo de keystore, não a chave que decifra `DoubleDragon.exe`. Se a geração de par falha, a string é `Failed to generate key pair!`. Um par novo não recupera um módulo já cifrado para outra chave, e não existe XML `ro_response` em nenhum arquivo enviado para embrulhar essa chave.
 
-`/ro/cek` (`0x1532cc`) e `/ro/pek` (`0x1532c4`) aparecem mais adiante, em `0x86168` / `0x86350`, comparando `r8` de novo. É outro formato de documento. Não está no APK, no pak, no exe, no `config.xml` nem no `signature.xml`.
+`/ro/cek` e `/ro/pek` não são um segundo arquivo solto. No sucesso de `ro_response`, depois do `SetKey` do payload e do filtro, o código monta outro parser XML, lê `/ro/device_id` e só então escolhe o elemento: modo 0 cai em `/ro/cek` (`0x86168`), modo 1 desvia para `/ro/pek` (`0x86350`) e os dois continuam no mesmo leitor. O `postLoad` em `0x81300` passa modo 0. Outro chamador, `0x6aef4`, passa modo 1 para o mesmo pipeline `0x868f4`. Nenhum dos dois grava uma chave local.
 
 A transformação do módulo, depois que a chave existe, é separada:
 
@@ -72,15 +72,31 @@ Não houve execução do jogo, de propósito: o binário é desconhecido, ARM, e
 
 Sem usuário ARM e sem imagem Android, não há sandbox armeabi offline para inicializar o launcher. Isso é limite desta VM, não um teste do jogo.
 
-## O que continua desconhecido
+## Auditoria dos ramos até o SetKey
 
-- O layout exato dos 16 bytes lidos e dos 0x20 apagados no arquivo do exe (operação vista no código, não um header parseado).
-- O tamanho da chave AES.
-- O conteúdo de `save.dat` / `saveserv.dat`, que não foi enviado e que o bootstrap não nomeia.
-- Se um keystore antigo, fora deste cache, ainda existiria em `/data/data/com.ggee.vividruntime.gg_1327/` num aparelho de 2012. O listing entregue é o cache `RuntimeApps`, e esse keystore não está nele.
+A recriação jogável continua parada. Esta passagem não repetiu a busca pública e não experimentou a máscara crua de novo como chave GCM. O que foi executado de novo, em ARM, é só o prefixo de `0x85500`. O resto é o fluxo estático do mesmo `bootstrap.exe`, com os testes em `tests/test_ro_audit.py`.
 
-Não há ZIP Windows jogável. Os recursos originais estão íntegros; o módulo nativo não.
+Hipóteses olhadas:
+
+1. O id de aparelho ausente vira uma chave embutida. Não. `0x85500` começa com o literal `12345678901234`, consulta `kdQueryAttribcv(0x24d)` e, se o retorno é nulo, fica com esse literal. Unicorn parou em `0x8553c`: nulo mantém o literal; a fixture `FIXTURE-DEVICE` substitui. O passo seguinte instala a vtable `CryptoPP::SHA256` (`GOT+0x1af4`). Isso alimenta a comparação com `/ro/device_id`. O `SetKey` do payload já aconteceu antes, em `0x85e14`. O literal não é a CEK.
+2. O elemento `/ro_response/key` é RSA-OAEP e a chave privada está no binário. A vtable em `GOT+0x17f8` é `PK_FinalTemplate<TF_DecryptorImpl<TF_ES<OAEP<SHA1, P1363_MGF1>, RSA>>>`, com `InvertibleRSAFunction`. Não há PEM, nem inteiro de versão de chave privada RSA, em `bootstrap.exe`, `DoubleDragon.exe` ou `libaudio.so`. Os módulos públicos dos dois certificados do `signature.xml` também não aparecem nesses três arquivos. Chave pública embutida não decifra.
+3. Um segundo imediato de 16 bytes em `0x7e848` seria chave de reserva. Ele é gravado e, nos dois lados do `blt` em `0x7e866`, a máscara da senha do keystore escreve por cima do mesmo buffer antes de qualquer `bl`.
+4. Atributo nulo, keystore ausente ou entrada ausente cairia numa CEK constante. Atributo nulo chama `kdSetError` e mesmo assim entra em `0x90f98` (`/data/keystore.dat`). Entrada ausente no mapa lança `Failed to generate key pair!`. A escrita do keystore, se falha, lança `Could not write the keystore!`. `0x7c714`, no caminho da ausência, instala `InvertibleRSAFunction`: um par novo não abre ciphertext embrulhado para outro par.
+5. Pular a checagem de modo, de xmlns ou de device id recuperaria o exe. Modo maior que 1 lança `Invalid key argument`. Xmlns fora de 1.0/1.1 lança `Unknown RO format`. Key ou payload vazio lança `Invalid RO format`. Device id diferente lança `Device ID does not match with the RO`. O corpo de `DoubleDragon.exe` continua ciphertext. Bypass de autenticação sem a CEK não é recuperação.
+6. Os dois chamadores do `postLoad` usariam cifras diferentes. `0x81106` só reordena registradores e cai em `0x868f4`. `0x81304` chama `0x868f4` direto. Os dois passam pelo parser de RO.
+
+O que o ARM e o fluxo mostram sobre a cifra, sem adivinhar layout:
+
+- No payload do RO, `0x85e14` chama o mesmo `SetKey`. O comprimento do IV é o imediato 16. O ponteiro da chave é uma `std::string` e o comprimento é o tamanho dessa string, não um imediato. Em `0x85ea0` o código soma 16 ao ponteiro e subtrai 16 do comprimento antes do filtro `0xe5f9c`. Na chamada, `r3` é `0x10`, `[sp]` é `-1` e `[sp+4]` é `4`.
+- No módulo, `0x86a0a` carrega a chave de `[sp+0x280]`. Esse endereço é o `r0` entregue a `0x8577c`. O IV é o buffer dos 16 bytes lidos do stream, comprimento imediato 16 em `0x86a2e`. `[sp+0x284]` é outro slot, zerado e passado como parâmetro separado; não é o ponteiro da chave.
+- Uma entrada da vtable GCM, comum à base e ao final de decrypt, devolve a constante 16; outra devolve 12. O chamador passa 16. Não executei `DigestSize()` e não tratei o 12 como IV deste caminho.
+
+Eliminado nos caminhos testados: CEK local, chave privada RSA embutida, fallback do literal de device id como chave, segundo imediato, atributo nulo como chave, par RSA gerado na hora, troca de modo 0/1. Não recuperou CEK nem instruções originais em claro.
+
+Ainda não testado, e não é prova de que seja impossível: o tamanho da string que chega ao `SetKey` do módulo (16, 24 ou 32); o valor que `DigestSize()` devolve quando o filtro recebe `-1`; o ponteiro exato da saída do filtro até o segundo parser XML; um RO original, que não está nos arquivos, embrulhado para uma chave privada que também não está. Não houve brute force.
+
+no flaw found in tested paths.
 
 ```bash
-PYTHONPATH=/workspace python3 -m unittest tests.test_loader_trace -v
+PYTHONPATH=/workspace python3 -m unittest tests.test_ro_audit tests.test_envelope tests.test_loader_trace -v
 ```

@@ -93,6 +93,27 @@ class SceneDumpTest(unittest.TestCase):
         self.assertIn(" 7 x", down)
         self.assertIn("m 0 0 2", down)
 
+    def test_quota_phase_spawns_the_object_enemies_and_releases_a_lock(self):
+        door = self.dump(3, "chain")
+        pair = self.dump(43, "chain")
+        opened = self.dump(44, "chain")
+        wall = self.dump(52, "chain")
+        second = self.dump(92, "chain")
+        macho = self.dump(132, "chain")
+        unlocked = self.dump(133, "chain")
+        self.assertIn("ph 1 q 2", door)
+        self.assertIn("767", door)
+        self.assertIn("40 30", pair)
+        self.assertIn("767 767", pair)
+        self.assertIn("ph 2 q 3", opened)
+        self.assertIn(" 40 x", wall)
+        self.assertIn("992", wall)
+        self.assertIn("40 30 x", second)
+        self.assertIn("40 30 50 x", macho)
+        self.assertIn("992 992 992", macho)
+        self.assertIn("lock 2", unlocked)
+        self.assertIn("q 0", unlocked)
+
     def test_player_loss_stays_down(self):
         text = self.dump(700, "crowd")
         self.assertIn("hp 0 40 30", text)

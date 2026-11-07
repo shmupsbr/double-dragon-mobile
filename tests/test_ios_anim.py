@@ -19,6 +19,7 @@ from ios.macho_anim import (
     encryption,
     ENC_LIST,
     char_def,
+    enc_data2,
     encounter_rows,
     first_wave,
     floor_bytes,
@@ -240,16 +241,33 @@ class IosAnimTest(unittest.TestCase):
         kinds = {(row[0], row[1]) for row in deferred}
         self.assertIn((0, 4), kinds)
         self.assertIn((0, 9), kinds)
-        self.assertIn((100, 9), kinds)
-        self.assertIn((687, 9), kinds)
+        self.assertNotIn((100, 9), kinds)
+        self.assertNotIn((687, 9), kinds)
         self.assertIn((1055, 10), kinds)
         implemented = [row[1] for row in done]
-        self.assertTrue(set(implemented) <= {0, 3, 5})
+        self.assertTrue(set(implemented) <= {0, 3, 5, 9})
+        door = [row for row in done if row[1] == 9 and row[4] == 1]
+        wall = [row for row in done if row[1] == 9 and row[4] == 2]
+        self.assertEqual(door, [(100, 9, 767, 64, 1, 10, 2, 6)])
+        self.assertEqual(wall, [(100, 9, 1000, 80, 2, 20, 8, 8)])
         enemies = [row for row in done if row[1] == 3]
         self.assertEqual(enemies[5][5], 4)
         self.assertEqual(enemies[5][2], 720)
         self.assertEqual(enemies[7][2], 880)
         self.assertEqual(enemies[8][2], 912)
+
+    def test_quota_keys_set_phase_then_spawn_the_table_enemies(self):
+        rows = enc_data2(self.blob)
+        self.assertIn((2, 8, 1, 65535), rows)
+        self.assertIn((2, 0, 2, 3), rows)
+        self.assertIn((10, 3, 9, 65535), rows)
+        self.assertIn((10, 10, 40, 11), rows)
+        self.assertIn((11, 3, 10, 65535), rows)
+        self.assertIn((3, 8, 2, 65535), rows)
+        self.assertIn((20, 3, 11, 65535), rows)
+        self.assertIn((22, 3, 13, 65535), rows)
+        self.assertEqual(char_def(self.blob, 31), (17, 19, 50))
+        self.assertEqual(char_def(self.blob, 6), (4, 6, 30))
 
     def test_bash_act_uses_its_own_patterns(self):
         frames, opcode = act_span(self.blob, ZAKO_C00_ACT0, ZAKO_C00_ACT0 + 0x5C)

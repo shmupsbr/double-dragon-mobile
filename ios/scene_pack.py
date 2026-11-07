@@ -32,6 +32,7 @@ from ios.macho_anim import (
     attack_record,
     billy_move,
     char_def,
+    enc_data2,
     encounter_rows,
     first_wave,
     floor_bytes,
@@ -47,6 +48,7 @@ from ios.macho_anim import (
     resource_name,
     stage1_map,
     stage1_spawn,
+    va_to_offset,
 )
 from ios.obm_decode import decode_obm
 
@@ -133,7 +135,8 @@ def build(blob: bytes, obm_zip: Path) -> tuple[bytes, dict]:
         will_img = read_i16(blob, ZAKO_C01_IMG, 8)
         bolo_img = read_i16(blob, ZAKO_C02_IMG, 8)
         linda_img = read_i16(blob, 0x7CD5E, 8)
-        names = {i: resource_name(blob, i) for i in set(jimmy_img[:8] + zako_img[:4] + will_img[:4] + bolo_img[:4] + linda_img[:4] + [69])}
+        macho_img = read_i16(blob, 0x85C36, 8)
+        names = {i: resource_name(blob, i) for i in set(jimmy_img[:8] + zako_img[:4] + will_img[:4] + bolo_img[:4] + linda_img[:4] + macho_img[:4] + [69])}
         sheets = _sheets(zf, set(names.values()))
     jimmy_rects, jimmy_pat, jimmy_points = jimmy_tables(blob)
     zako_rects = read_rects(blob, ZAKO_RECT, ZAKO_PAT - ZAKO_RECT)
@@ -216,7 +219,7 @@ def build(blob: bytes, obm_zip: Path) -> tuple[bytes, dict]:
     payload += struct.pack(
         "<4sHHHiiiiiiiiiiHHHH",
         b"DD1S",
-        8,
+        9,
         480,
         320,
         info["pixel_w"],
@@ -242,7 +245,8 @@ def build(blob: bytes, obm_zip: Path) -> tuple[bytes, dict]:
     # Foes are spawned by the row walker, not listed up front.
     payload += struct.pack("<i", 0)
     # Installer image slots: 4 LINDA, 6 BASH, 7 WILLIAMS, 8 BOLO.
-    draw_sheet = {4: 3, 6: 0, 7: 1, 8: 2}
+    # Draw 19 is ciMachoAfroImgNo (MACHO_AFRO.obm), char 31 / type 17.
+    draw_sheet = {4: 3, 6: 0, 7: 1, 8: 2, 19: 4}
     payload += struct.pack(
         "<6H4i7h",
         len(zwalk_b), len(zwalk_w), len(zpunch_b), len(zpunch_w), len(zdown_b), len(jdown),
@@ -300,8 +304,41 @@ def build(blob: bytes, obm_zip: Path) -> tuple[bytes, dict]:
             payload += struct.pack("<8i", row[0], 3, x, z, hp, draw_sheet[draw], flags, y_word)
         elif kind == 0:
             payload += struct.pack("<8i", row[0], 0, row[2], row[3], 0, 0, 0, 0)
+        elif kind == 9:
+            payload += struct.pack("<8i", *row)
         else:
             payload += struct.pack("<8i", row[0], 5, 0, 0, 0, 0, 0, 0)
+    macho_rects = read_rects(blob, 0x84794, 0x85864 - 0x84794)
+    macho_pat = read_i16(blob, 0x85864, 0x85BAA - 0x85864)
+    macho_points = read_i16(blob, 0x85BAA, 0x85C36 - 0x85BAA)
+    mgroups = [
+        _frames(blob, sheets, names, macho_rects, macho_pat, macho_points, macho_img, 0xB4DE4, 0xB4E28),
+        _frames(blob, sheets, names, macho_rects, macho_pat, macho_points, macho_img, 0xB4E28, 0xB4E84),
+        _frames(blob, sheets, names, macho_rects, macho_pat, macho_points, macho_img, 0xB5708, 0xB57AC),
+        _frames(blob, sheets, names, macho_rects, macho_pat, macho_points, macho_img, 0xB5068, 0xB5088),
+        _frames(blob, sheets, names, macho_rects, macho_pat, macho_points, macho_img, 0xB5114, 0xB5134),
+        _frames(blob, sheets, names, macho_rects, macho_pat, macho_points, macho_img, 0xB50A8, 0xB50C8),
+        _frames(blob, sheets, names, macho_rects, macho_pat, macho_points, macho_img, 0xB5134, 0xB5178),
+        _frames(blob, sheets, names, macho_rects, macho_pat, macho_points, macho_img, 0xB5178, 0xB5198),
+        _frames(blob, sheets, names, macho_rects, macho_pat, macho_points, macho_img, 0xB5294, 0xB52B4),
+    ]
+    payload += struct.pack("<9H", *(len(g) for g in mgroups))
+    for group in mgroups:
+        put_group(group)
+    keys = enc_data2(blob)
+    payload += struct.pack("<i", len(keys))
+    for key, kind, param, extra in keys:
+        payload += struct.pack("<4i", key, kind, param, extra)
+    # Enemy records named by EncData2 kind-3 params. Empty slots are not spawned.
+    payload += struct.pack("<i", 20)
+    for index in range(20):
+        if index in (9, 10, 11, 12, 13):
+            words = struct.unpack_from("<6i", blob, va_to_offset(0x64DE0 + index * 24))
+            char_id, abs_x, y_word, depth, _entry, flags = words
+            _typ, draw, hp = char_def(blob, char_id)
+            payload += struct.pack("<8i", abs_x, depth, hp, draw_sheet[draw], flags, y_word, char_id, 0)
+        else:
+            payload += struct.pack("<8i", 0, 0, 0, -1, 0, 0, 0, 0)
     meta = {
         "spawn": (spawn_x, spawn_z),
         "ground": floor_ground(blob, spawn_x, spawn_z),

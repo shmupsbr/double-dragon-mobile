@@ -78,6 +78,7 @@ JIMMY_ACT29 = 0xAA688
 JIMMY_ACT45 = 0xAAA6C
 JIMMY_ATK = 0xC67C4
 ENC_LIST = 0x64A60
+ENC_DATA2 = 0x64C30
 ENC_ENEMY = 0x64DE0
 ENEMY_TBL = 0xC55D0
 # Written at 0x1faa2 and 0x27666: +0x47a8 = 0x1e0, +0x47ac = 0x1e0-0xa0.
@@ -396,12 +397,38 @@ def char_def(blob: bytes, index: int) -> tuple[int, int, int]:
     return words[0], words[1], words[3]
 
 
+# csStage01EncObjData placements the stage-1 kind-9 rows name.
+# phase is the applet+0x47f4 value GT_Stage01DoorReady / WallReady compare.
+# Door act 1 (ciStage01ObjAct_001) shows 2 frames, then a flag-0x10000000
+# frame; DoorOpen fires +0x144 on that flag and unlinks at STOP (frame 6).
+# Wall act 3 is four duration-2 frames; WallBreak fires on STOP, frame 8.
+# The fence's extra 30 has no EncData2 key, and stage 1 never stores phase 3 or 4.
+OBJ_PHASE = {
+    0: (767, 64, 1, 10, 2, 6),
+    1: (1000, 80, 2, 20, 8, 8),
+    2: (1320, 80, 0, 30, 0, 0),
+}
+
+
+def enc_data2(blob: bytes) -> list[tuple[int, int, int, int]]:
+    """csStage01EncData2 rows (key, kind, param, extra) through the -1 key."""
+    out = []
+    raw = _load(blob, ENC_DATA2, 16 * 48)
+    for i in range(48):
+        key, kind, param, extra = struct.unpack_from("<4i", raw, i * 16)
+        if key < 0:
+            break
+        out.append((key, kind, param, extra))
+    return out
+
+
 def encounter_rows(blob: bytes) -> tuple[list[tuple], list[tuple]]:
     """Split csStage01EncData into rows this scene can dispatch and rows it cannot.
 
-    Implemented kinds are 0 (quota), 3 (enemy) and 5 (scroll-lock increment).
-    Kind 4 is EncountItemCreate, kind 9 is EncountObjCreate, kind 10 is the
-    timed task at the end of the list. Those stay in the deferred list.
+    Implemented kinds are 0 (quota), 3 (enemy), 5 (scroll-lock increment) and
+    the three kind-9 objects whose ready procs watch applet+0x47f4.
+    Kind 4 items, the scroll-0 scenery objects, and kind 10 at scroll 1055
+    stay deferred. Kind 10 tasks that EncData2 itself starts are not rows.
     """
     done = []
     deferred = []
@@ -421,6 +448,9 @@ def encounter_rows(blob: bytes) -> tuple[list[tuple], list[tuple]]:
             done.append((scroll, kind, param, trigger))
         elif kind == 5:
             done.append((scroll, kind))
+        elif kind == 9 and param in OBJ_PHASE:
+            x, z, phase, obj_extra, delay, despawn = OBJ_PHASE[param]
+            done.append((scroll, 9, x, z, phase, obj_extra, delay, despawn))
         else:
             deferred.append((scroll, kind, param, extra))
     return done, deferred

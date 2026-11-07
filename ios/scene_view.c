@@ -43,6 +43,7 @@ typedef struct {
     int hx, hy, hw, hh, hz, hzs, grab_x, grab_z;
     int n_zwb, n_zww, n_zpb, n_zpw, n_zdb, n_jd, n_zdw, n_zlb, n_zlw, n_jl;
     int n_zfb, n_zfw, n_zgb, n_zgw, n_jf, n_jg;
+    int n_zlib, n_zliw, n_jlie, n_zdib, n_zdiw, n_jdie;
     int zvx, zvz, hero_hp;
     int zx, zy, zw, zh, zz, zzs, zdmg;
     int32_t *ground;
@@ -71,6 +72,12 @@ typedef struct {
     Frame *zgw;
     Frame *jf;
     Frame *jg;
+    Frame *zlib;
+    Frame *zliw;
+    Frame *jlie;
+    Frame *zdib;
+    Frame *zdiw;
+    Frame *jdie;
     Foe foes[4];
 } Scene;
 
@@ -146,7 +153,7 @@ static Scene *load_scene(const char *path) {
     if (!fp) return NULL;
     scene = calloc(1, sizeof(Scene));
     if (!scene || !rd(fp, magic, 4) || memcmp(magic, "DD1S", 4) != 0) goto fail;
-    if (!ru16(fp, &version) || version != 4) goto fail;
+    if (!ru16(fp, &version) || version != 5) goto fail;
     if (!ru16(fp, &vw) || !ru16(fp, &vh)) goto fail;
     if (!ri32(fp, &scene->map_w) || !ri32(fp, &scene->map_h)) goto fail;
     if (!ri32(fp, &scene->spawn_x) || !ri32(fp, &scene->spawn_z)) goto fail;
@@ -193,6 +200,9 @@ static Scene *load_scene(const char *path) {
     if (!ru16(fp, &scene->n_zfb) || !ru16(fp, &scene->n_zfw) || !ru16(fp, &scene->n_zgb) ||
         !ru16(fp, &scene->n_zgw) || !ru16(fp, &scene->n_jf) || !ru16(fp, &scene->n_jg))
         goto fail;
+    if (!ru16(fp, &scene->n_zlib) || !ru16(fp, &scene->n_zliw) || !ru16(fp, &scene->n_jlie) ||
+        !ru16(fp, &scene->n_zdib) || !ru16(fp, &scene->n_zdiw) || !ru16(fp, &scene->n_jdie))
+        goto fail;
     ground_n = (size_t)scene->floor_w * scene->floor_h;
     scene->ground = malloc(ground_n * 4);
     if (!scene->ground || !rd(fp, scene->ground, ground_n * 4)) goto fail;
@@ -224,10 +234,17 @@ static Scene *load_scene(const char *path) {
     scene->zgw = load_frames(fp, scene->n_zgw);
     scene->jf = load_frames(fp, scene->n_jf);
     scene->jg = load_frames(fp, scene->n_jg);
+    scene->zlib = load_frames(fp, scene->n_zlib);
+    scene->zliw = load_frames(fp, scene->n_zliw);
+    scene->jlie = load_frames(fp, scene->n_jlie);
+    scene->zdib = load_frames(fp, scene->n_zdib);
+    scene->zdiw = load_frames(fp, scene->n_zdiw);
+    scene->jdie = load_frames(fp, scene->n_jdie);
     if (!scene->idle || !scene->walk || !scene->bash || !scene->will || !scene->p28 || !scene->p29 ||
         !scene->p45 || !scene->zwb || !scene->zww || !scene->zpb || !scene->zpw || !scene->zdb ||
         !scene->zdw || !scene->jd || !scene->zlb || !scene->zlw || !scene->jl || !scene->zfb ||
-        !scene->zfw || !scene->zgb || !scene->zgw || !scene->jf || !scene->jg)
+        !scene->zfw || !scene->zgb || !scene->zgw || !scene->jf || !scene->jg || !scene->zlib ||
+        !scene->zliw || !scene->jlie || !scene->zdib || !scene->zdiw || !scene->jdie)
         goto fail;
     fclose(fp);
     return scene;
@@ -362,8 +379,10 @@ static Frame *hero_pose(const Scene *scene, const Body *body) {
     if (body->mode == 2 && scene->n_jd) return &scene->jd[body->frame % scene->n_jd];
     if (body->mode == 5 && scene->n_jf) return &scene->jf[body->frame % scene->n_jf];
     if (body->mode == 3 && scene->n_jl) return &scene->jl[body->frame % scene->n_jl];
+    if (body->mode == 7 && scene->n_jlie) return &scene->jlie[body->frame % scene->n_jlie];
     if (body->mode == 6 && scene->n_jg) return &scene->jg[body->frame % scene->n_jg];
-    if (body->mode == 4 && scene->n_jl) return &scene->jl[scene->n_jl - 1];
+    if (body->mode == 8 && scene->n_jdie) return &scene->jdie[body->frame % scene->n_jdie];
+    if (body->mode == 4 && scene->n_jdie) return &scene->jdie[scene->n_jdie - 1];
     if (body->punch_act == 28) return &scene->p28[body->frame];
     if (body->punch_act == 29) return &scene->p29[body->frame];
     if (body->punch_act == 45) return &scene->p45[body->frame];
@@ -424,6 +443,16 @@ static const Frame *foe_pose(const Scene *scene, const Foe *foe) {
         int n = sheet ? scene->n_zlw : scene->n_zlb;
         return &land[n > 0 ? n - 1 : 0];
     }
+    if (foe->mode == 8) {
+        const Frame *die = sheet ? scene->zdiw : scene->zdib;
+        int n = sheet ? scene->n_zdiw : scene->n_zdib;
+        return &die[foe->frame % n];
+    }
+    if (foe->mode == 7) {
+        const Frame *lie = sheet ? scene->zliw : scene->zlib;
+        int n = sheet ? scene->n_zliw : scene->n_zlib;
+        return &lie[foe->frame % n];
+    }
     if (foe->mode == 6) {
         const Frame *up = sheet ? scene->zgw : scene->zgb;
         int n = sheet ? scene->n_zgw : scene->n_zgb;
@@ -461,6 +490,8 @@ static const Frame *foe_pose(const Scene *scene, const Foe *foe) {
 
 static int foe_count(const Scene *scene, const Foe *foe) {
     int sheet = foe->sheet;
+    if (foe->mode == 8) return sheet ? scene->n_zdiw : scene->n_zdib;
+    if (foe->mode == 7) return sheet ? scene->n_zliw : scene->n_zlib;
     if (foe->mode == 6) return sheet ? scene->n_zgw : scene->n_zgb;
     if (foe->mode == 5) return sheet ? scene->n_zfw : scene->n_zfb;
     if (foe->mode == 3) return sheet ? scene->n_zlw : scene->n_zlb;
@@ -548,10 +579,12 @@ static void step_foes(Scene *scene, Body *hero) {
                         foe->shown = 0;
                         foe->timer = 0;
                     } else if (foe->mode == 3 && foe->yv >= 0) {
+                        /* BoundDamage, once the hop is back on the ground, installs
+                           GT_Down and act 16. It does not play the 0x400000 get-up. */
                         foe->yv = 0;
                         foe->ya = 0;
                         foe->vx = 0;
-                        foe->mode = foe->hp > 0 ? 6 : 4;
+                        foe->mode = 7;
                         foe->frame = 0;
                         foe->shown = 0;
                         foe->timer = 0;
@@ -563,11 +596,27 @@ static void step_foes(Scene *scene, Body *hero) {
                 continue;
             }
             n = foe_count(scene, foe);
+            if (foe->mode == 7 && n > 0 && foe->shown && foe->timer <= 1 && foe->frame + 1 >= n) {
+                /* GT_Down: STOP on act 16. HP left -> act 17. HP 0 -> act 23 then GT_KO. */
+                foe->mode = foe->hp > 0 ? 6 : 8;
+                foe->frame = 0;
+                foe->shown = 0;
+                foe->timer = 0;
+                foe->x = foe->x_fp >> 16;
+                continue;
+            }
             if (foe->mode == 6 && n > 0 && foe->shown && foe->timer <= 1 && foe->frame + 1 >= n) {
                 foe->mode = 0;
                 foe->frame = 0;
                 foe->shown = 0;
                 foe->cmd = 0;
+                foe->x = foe->x_fp >> 16;
+                continue;
+            }
+            if (foe->mode == 8 && n > 0 && foe->shown && foe->timer <= 1 && foe->frame + 1 >= n) {
+                /* GT_KO returns 2 for a negative +0x16d. The task walker unlinks it. */
+                foe->mode = 4;
+                foe->alive = 0;
                 foe->x = foe->x_fp >> 16;
                 continue;
             }
@@ -686,7 +735,7 @@ static void step_body(Scene *scene, Body *body, int left, int right, int up, int
                     body->yv = 0;
                     body->ya = 0;
                     body->vx = 0;
-                    body->mode = body->hp > 0 ? 6 : 4;
+                    body->mode = 7;
                     body->frame = 0;
                     body->shown = 0;
                     body->timer = 0;
@@ -696,10 +745,24 @@ static void step_body(Scene *scene, Body *body, int left, int right, int up, int
         if (body->mode == 2) n = scene->n_jd;
         else if (body->mode == 5) n = scene->n_jf;
         else if (body->mode == 3) n = scene->n_jl;
+        else if (body->mode == 7) n = scene->n_jlie;
         else if (body->mode == 6) n = scene->n_jg;
+        else if (body->mode == 8) n = scene->n_jdie;
+        if (body->mode == 7 && n > 0 && body->shown && body->timer <= 1 && body->frame + 1 >= n) {
+            body->mode = body->hp > 0 ? 6 : 8;
+            body->frame = 0;
+            body->shown = 0;
+            body->timer = 0;
+            return;
+        }
         if (body->mode == 6 && n > 0 && body->shown && body->timer <= 1 && body->frame + 1 >= n) {
             body->mode = 0;
             restart(body, 0);
+            return;
+        }
+        if (body->mode == 8 && n > 0 && body->shown && body->timer <= 1 && body->frame + 1 >= n) {
+            body->mode = 4;
+            body->frame = n - 1;
             return;
         }
         if (body->mode != 4 && n > 0) {

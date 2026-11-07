@@ -36,19 +36,25 @@ class SceneDumpTest(unittest.TestCase):
         text = self.dump(240, "watch")
         self.assertIn("hp 100 40 30 x 120 120", text)
 
-    def test_hit_enemy_gets_back_up(self):
-        text = self.dump(120, "stand")
+    def test_live_enemy_reaches_the_getup_act(self):
+        text = self.dump(140, "stand")
         self.assertIn("hp 91 22 12", text)
+        self.assertIn("m 6 6", text)
+
+    def test_live_enemy_returns_to_the_command_list(self):
+        text = self.dump(200, "stand")
+        self.assertIn("hp 73 22 12", text)
         self.assertIn("m 0 0", text)
 
-    def test_zero_hp_stays_down(self):
-        text = self.dump(320, "stand")
-        self.assertIn("hp 64 0 0", text)
-        self.assertIn("m 4 4", text)
-        self.assertIn("pm 0", text)
+    def test_zero_hp_is_unlinked_and_stays_unlinked(self):
+        gone = self.dump(500, "stand")
+        later = self.dump(700, "stand")
+        self.assertIn("hp 37 0 0", gone)
+        self.assertIn("m 4 4", gone)
+        self.assertIn("m 4 4", later)
 
     def test_player_loss_stays_down(self):
-        text = self.dump(600, "crowd")
+        text = self.dump(700, "crowd")
         self.assertIn("hp 0 40 30", text)
         self.assertIn("pm 4", text)
 

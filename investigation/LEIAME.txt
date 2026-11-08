@@ -1,0 +1,1 @@
+Arquivos para investigar execucao do jogo original no Windows. Recursos extraidos estao nos tres ZIPs ja anexados ao trabalho. Dados pessoais de ticket, member_code, saves e qualquer chave derivada foram excluidos. Os apontamentos de analise sao evidencias parciais, nao prova de impossibilidade; verificar independentemente.
